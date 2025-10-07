@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import './styles/tokens.css';
+
+@layer base {
+  html { font-size: 100%; }
+  body { font-size: var(--fs-body); color: theme(colors.ink); }
+}
+
+@layer components {
+  .container { max-width: var(--container); }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-semibold transition-all; }
+  .btn-primary { @apply bg-primary text-white hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring shadow-sm; }
+  .btn-ghost { @apply text-white/80 hover:text-white hover:bg-white/10; }
+  .nav-link { @apply text-white/80 hover:text-white transition; }
+  .hero-title { font-size: var(--fs-hero); @apply uppercase text-white font-extrabold tracking-tightest leading-[1.05]; }
+  .h2 { font-size: var(--fs-h2); @apply font-semibold text-ink; }
+}
