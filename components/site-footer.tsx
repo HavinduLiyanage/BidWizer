@@ -22,16 +22,6 @@ const footerLinks = {
       { label: 'Contact', href: '/contact' }
     ]
   },
-  resources: {
-    title: 'Resources',
-    links: [
-      { label: 'Community', href: '/community' },
-      { label: 'Support', href: '/support' },
-      { label: 'Documentation', href: '/docs' },
-      { label: 'Help center', href: '/help' },
-      { label: 'Tutorials', href: '/tutorials' }
-    ]
-  },
   legal: {
     title: 'Legal',
     links: [

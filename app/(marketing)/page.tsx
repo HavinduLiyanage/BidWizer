@@ -51,13 +51,8 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.2 }}
             >
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Link href="/register/bidder/step1" className="btn btn-primary text-base">
+                <Link href="/pricing" className="btn btn-primary text-base">
                   Get started <ArrowRight className="h-4 w-4" />
-                </Link>
-              </motion.div>
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Link href="/pricing" className="btn btn-ghost border border-slate-300 bg-white text-navy-900">
-                  View pricing
                 </Link>
               </motion.div>
             </motion.div>

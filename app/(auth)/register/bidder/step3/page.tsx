@@ -50,7 +50,7 @@ export default function BidderRegistrationStep3() {
   const adminSeat = 1; // Admin is already registered in step 1
   const remainingSeats = maxSeats - adminSeat - teamMembers.length; // Remaining seats for team members
 
-  const handleAddMember = (e: React.FormEvent) => {
+  const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (remainingSeats <= 0) {
@@ -63,16 +63,43 @@ export default function BidderRegistrationStep3() {
       name: formData.name,
       email: formData.email,
       position: formData.position,
-      status: 'pending'
+      status: 'invited'
     };
 
-    setTeamMembers([...teamMembers, newMember]);
-    setFormData({ name: "", email: "", position: "" });
-    setIsAddingMember(false);
+    // Simulate sending invitation email
+    try {
+      // In a real app, you would call your backend API to send the invitation
+      console.log("Sending invitation to:", formData.email);
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setTeamMembers([...teamMembers, newMember]);
+      setFormData({ name: "", email: "", position: "" });
+      setIsAddingMember(false);
+      
+      // Show success message
+      alert(`Invitation sent to ${formData.email}! They will receive an email with registration instructions.`);
+    } catch (error) {
+      console.error("Failed to send invitation:", error);
+      alert("Failed to send invitation. Please try again.");
+    }
   };
 
   const handleRemoveMember = (id: string) => {
     setTeamMembers(teamMembers.filter(member => member.id !== id));
+  };
+
+  const handleResendInvitation = async (member: TeamMember) => {
+    try {
+      console.log("Resending invitation to:", member.email);
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      alert(`Invitation resent to ${member.email}!`);
+    } catch (error) {
+      console.error("Failed to resend invitation:", error);
+      alert("Failed to resend invitation. Please try again.");
+    }
   };
 
   const handleSubmit = () => {
@@ -108,6 +135,16 @@ export default function BidderRegistrationStep3() {
                 <p className="text-gray-600 mb-4">
                   Add additional team members to collaborate on tenders (admin already registered)
                 </p>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Mail className="h-5 w-5 text-green-600" />
+                    <span className="font-semibold text-green-900">Invitation Process</span>
+                  </div>
+                  <p className="text-sm text-green-700">
+                    When you add a team member, they'll receive an email invitation with a link to register. 
+                    After they complete registration and verify their email, they'll be able to access your workspace.
+                  </p>
+                </div>
                 
                 {/* Plan Info */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
@@ -159,6 +196,16 @@ export default function BidderRegistrationStep3() {
                               {member.status === 'pending' ? 'Pending' :
                                member.status === 'invited' ? 'Invited' : 'Active'}
                             </span>
+                            {member.status === 'invited' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleResendInvitation(member)}
+                                className="text-xs px-2 py-1 h-6"
+                              >
+                                Resend
+                              </Button>
+                            )}
                             <button
                               onClick={() => handleRemoveMember(member.id)}
                               className="text-gray-400 hover:text-red-500 transition-colors"

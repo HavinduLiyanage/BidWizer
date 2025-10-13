@@ -10,8 +10,15 @@ import { UserMenu } from './user-menu'
 const nav = [
   { label: 'Features', href: '/features' },
   { label: 'Pricing', href: '/pricing' },
-  { label: 'Resources', href: '/resources' },
-  { label: 'Support', href: '/support', hasDropdown: true }
+  { 
+    label: 'Support', 
+    href: '/support', 
+    hasDropdown: true,
+    dropdownItems: [
+      { label: 'Contact Support', href: '/contact', description: 'Get help from our team' },
+      { label: 'Documentation', href: '/docs', description: 'User guides and tutorials' }
+    ]
+  }
 ]
 
 interface SiteHeaderProps {
@@ -39,6 +46,24 @@ export default function SiteHeader({ variant = 'homepage' }: SiteHeaderProps) {
                   {item.label}
                   {item.hasDropdown && <ChevronDown className="h-3 w-3" />}
                 </Link>
+                
+                {/* Dropdown Menu */}
+                {item.hasDropdown && item.dropdownItems && (
+                  <div className="absolute top-full left-0 mt-2 w-64 rounded-lg bg-white shadow-lg border border-slate-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                    <div className="py-2">
+                      {item.dropdownItems.map((dropdownItem) => (
+                        <Link
+                          key={dropdownItem.label}
+                          href={dropdownItem.href}
+                          className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-navy-900 transition-colors"
+                        >
+                          <div className="font-medium">{dropdownItem.label}</div>
+                          <div className="text-xs text-slate-500 mt-1">{dropdownItem.description}</div>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </nav>
@@ -62,14 +87,29 @@ export default function SiteHeader({ variant = 'homepage' }: SiteHeaderProps) {
           <div className="md:hidden border-t border-slate-200 bg-white">
             <div className="container py-3 space-y-3">
               {nav.map(item => (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  className="block text-sm font-medium text-slate-700 hover:text-navy-900 transition-colors"
-                  onClick={() => setOpen(false)}
-                >
-                  {item.label}
-                </Link>
+                <div key={item.label}>
+                  <Link
+                    href={item.href}
+                    className="block text-sm font-medium text-slate-700 hover:text-navy-900 transition-colors"
+                    onClick={() => setOpen(false)}
+                  >
+                    {item.label}
+                  </Link>
+                  {item.hasDropdown && item.dropdownItems && (
+                    <div className="ml-4 mt-2 space-y-2">
+                      {item.dropdownItems.map((dropdownItem) => (
+                        <Link
+                          key={dropdownItem.label}
+                          href={dropdownItem.href}
+                          className="block text-xs text-slate-600 hover:text-navy-900 transition-colors"
+                          onClick={() => setOpen(false)}
+                        >
+                          {dropdownItem.label}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ))}
               <div className="pt-2">
                 <Link
@@ -94,7 +134,7 @@ export default function SiteHeader({ variant = 'homepage' }: SiteHeaderProps) {
         {/* Oval navbar */}
         <div className="container pt-4">
           <motion.header
-            className="relative mx-auto max-w-4xl rounded-full bg-white/90 px-6 py-3 shadow-lg backdrop-blur-sm"
+            className="relative z-50 mx-auto max-w-4xl rounded-full bg-white/90 px-6 py-3 shadow-lg backdrop-blur-sm overflow-visible"
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
@@ -116,6 +156,24 @@ export default function SiteHeader({ variant = 'homepage' }: SiteHeaderProps) {
                       {item.label}
                       {item.hasDropdown && <ChevronDown className="h-3 w-3" />}
                     </Link>
+                    
+                    {/* Dropdown Menu */}
+                    {item.hasDropdown && item.dropdownItems && (
+                      <div className="absolute top-full left-0 mt-2 w-64 rounded-lg bg-white shadow-xl border border-slate-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[100]">
+                        <div className="py-2">
+                          {item.dropdownItems.map((dropdownItem) => (
+                            <Link
+                              key={dropdownItem.label}
+                              href={dropdownItem.href}
+                              className="block px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 hover:text-navy-900 transition-colors"
+                            >
+                              <div className="font-medium">{dropdownItem.label}</div>
+                              <div className="text-xs text-slate-500 mt-1">{dropdownItem.description}</div>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </nav>
@@ -150,14 +208,29 @@ export default function SiteHeader({ variant = 'homepage' }: SiteHeaderProps) {
               >
                 <div className="space-y-3">
                   {nav.map(item => (
-                    <Link
-                      key={item.label}
-                      href={item.href}
-                      className="block text-sm font-medium text-slate-700 hover:text-navy-900 transition-colors"
-                      onClick={() => setOpen(false)}
-                    >
-                      {item.label}
-                    </Link>
+                    <div key={item.label}>
+                      <Link
+                        href={item.href}
+                        className="block text-sm font-medium text-slate-700 hover:text-navy-900 transition-colors"
+                        onClick={() => setOpen(false)}
+                      >
+                        {item.label}
+                      </Link>
+                      {item.hasDropdown && item.dropdownItems && (
+                        <div className="ml-4 mt-2 space-y-2">
+                          {item.dropdownItems.map((dropdownItem) => (
+                            <Link
+                              key={dropdownItem.label}
+                              href={dropdownItem.href}
+                              className="block text-xs text-slate-600 hover:text-navy-900 transition-colors"
+                              onClick={() => setOpen(false)}
+                            >
+                              {dropdownItem.label}
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                   <div className="pt-2">
                     <Link
