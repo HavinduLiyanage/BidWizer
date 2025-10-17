@@ -92,7 +92,19 @@ A comprehensive tender management platform built with Next.js 14, TypeScript, an
    
    Edit `.env.local`:
    ```env
+   # Currency conversion
    NEXT_PUBLIC_FX_USD_LKR=330
+   
+   # Authentication
+   NEXTAUTH_SECRET=your-secret-key-here
+   NEXTAUTH_URL=http://localhost:3000
+   
+   # Database
+   DATABASE_URL=your-database-url-here
+   DIRECT_URL=your-direct-database-url-here
+   
+   # Email (Resend)
+   RESEND_API_KEY=your-resend-api-key-here
    ```
 
 4. **Run the development server**
@@ -146,6 +158,13 @@ A comprehensive tender management platform built with Next.js 14, TypeScript, an
 - `/register/bidder/step3` - Registration step 3
 - `/register/bidder/ready` - Registration complete
 
+### API Routes
+- `/api/auth/[...nextauth]` - NextAuth.js authentication
+- `/api/auth/register` - User registration with email verification
+- `/api/auth/verify` - Email verification endpoint
+- `/api/auth/forgot` - Password reset request
+- `/api/auth/reset` - Password reset with token
+
 ### Bidder Dashboard (/dashboard)
 - `/dashboard` - Main dashboard
 - `/company/profile` - Company profile
@@ -181,6 +200,15 @@ npm run lint
 ```
 
 ## 📝 Key Features Implementation
+
+### Authentication System
+Complete authentication system with:
+- **NextAuth.js**: Credentials provider with JWT sessions
+- **Zod Validation**: Input validation for all auth endpoints
+- **bcrypt**: Secure password hashing (12 rounds)
+- **Resend**: Email service for verification and password reset
+- **Email Verification**: Required for account activation
+- **Password Reset**: Secure token-based password reset flow
 
 ### Multi-Step Registration
 The bidder registration flow uses localStorage to persist data across steps:

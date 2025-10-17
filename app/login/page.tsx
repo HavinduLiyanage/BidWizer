@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { signIn, getSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Mail, Lock, CheckCircle } from "lucide-react";
+import { Mail, Lock, CheckCircle, AlertCircle } from "lucide-react";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,6 +20,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     // Show success message if user just registered
@@ -28,23 +30,57 @@ export default function LoginPage() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    const errorParam = searchParams.get("error");
+    if (!errorParam) {
+      return;
+    }
+
+    if (errorParam === "EmailNotVerified" || errorParam === "Error: EmailNotVerified") {
+      setErrorMessage("Please verify your email address before logging in.");
+    } else if (errorParam === "CredentialsSignin") {
+      setErrorMessage("Invalid email or password. Please try again.");
+    } else {
+      setErrorMessage("Unable to sign in with those credentials.");
+    }
+  }, [searchParams]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setErrorMessage(null);
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    console.log("Login attempt:", { email, password });
-    
-    // TODO: Implement actual authentication logic
-    // For now, redirect based on email domain or user type
-    // This is where you'd check the user type and redirect accordingly
-    if (email.includes('publisher') || email.includes('@company.com')) {
-      router.push("/publisher/dashboard");
-    } else {
-      router.push("/dashboard");
+    const result = await signIn("credentials", {
+      email,
+      password,
+      redirect: false,
+    });
+
+    if (!result) {
+      setErrorMessage("Unexpected error occurred. Please try again.");
+      setIsSubmitting(false);
+      return;
     }
+
+    if (result.error) {
+      if (result.error === "EmailNotVerified" || result.error === "Error: EmailNotVerified") {
+        setErrorMessage("Please verify your email address before logging in.");
+      } else if (result.error === "CredentialsSignin") {
+        setErrorMessage("Invalid email or password. Please try again.");
+      } else {
+        setErrorMessage("Unable to sign in. Please try again.");
+      }
+      setIsSubmitting(false);
+      return;
+    }
+
+    const session = await getSession();
+    const organizationType = session?.user?.organizationType;
+    const destination = organizationType === "PUBLISHER" ? "/publisher/dashboard" : "/dashboard";
+
+    router.push(destination);
+    router.refresh();
+    setIsSubmitting(false);
   };
 
   return (
@@ -103,6 +139,15 @@ export default function LoginPage() {
                       <div>
                         <p className="text-sm font-medium text-green-800">Registration Successful!</p>
                         <p className="text-xs text-green-600">You can now sign in to your account.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {errorMessage && (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+                      <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-red-800">{errorMessage}</p>
                       </div>
                     </div>
                   )}

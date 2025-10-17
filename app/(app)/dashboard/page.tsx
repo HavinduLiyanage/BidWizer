@@ -6,8 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { mockTenders, mockPublishers } from "@/lib/mock-data";
+import { useUser } from "@/lib/hooks/use-session";
 
 export default function DashboardPage() {
+  const { user, isLoading } = useUser();
+  
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
@@ -16,7 +19,7 @@ export default function DashboardPage() {
         <div className="container mx-auto px-4 md:px-6">
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              Welcome back, John Doe
+              Welcome back, {isLoading ? "..." : user?.name || "User"}
             </h1>
             <p className="text-gray-600">
               Here's what's happening with your tenders today

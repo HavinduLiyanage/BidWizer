@@ -13,11 +13,12 @@ import { Label } from "@/components/ui/label";
 
 interface InviteData {
   email: string;
-  name: string;
-  position: string;
-  companyName: string;
+  name?: string | null;
+  position?: string | null;
+  organizationName: string;
   inviterName: string;
   token: string;
+  expiresAt?: string;
 }
 
 export default function InviteRegisterPage() {
@@ -35,30 +36,63 @@ export default function InviteRegisterPage() {
   });
 
   useEffect(() => {
-    // Get invite token from URL params
     const token = searchParams.get("token");
-    const email = searchParams.get("email");
-    
-    if (!token || !email) {
-      setError("Invalid invite link. Please check your email for the correct link.");
+    if (!token) {
+      setError("Invalid invite link. Please use the link provided in your email.");
       setIsLoading(false);
       return;
     }
 
-    // In a real app, you would validate the token with your backend
-    // For now, we'll simulate the invite data
-    const mockInviteData: InviteData = {
-      email: email,
-      name: "John Doe", // This would come from the invite
-      position: "Bid Specialist", // This would come from the invite
-      companyName: "ABC Construction Ltd", // This would come from the invite
-      inviterName: "Jane Smith", // This would come from the invite
-      token: token,
-    };
+    async function loadInvitation() {
+      try {
+        const response = await fetch(`/api/invitations/${token}`);
+        const data = await response.json();
 
-    setInviteData(mockInviteData);
-    setFormData(prev => ({ ...prev, email: email, name: mockInviteData.name }));
-    setIsLoading(false);
+        if (!response.ok) {
+          setError(data.error ?? "This invitation link is no longer valid.");
+          return;
+        }
+
+        const invitation = data.invitation as {
+          email: string;
+          name?: string | null;
+          position?: string | null;
+          organizationName: string;
+          inviterName: string;
+          expiresAt?: string;
+        };
+
+        const emailParam = searchParams.get("email");
+        if (emailParam && emailParam.toLowerCase() !== invitation.email.toLowerCase()) {
+          console.warn("Invite email does not match the query parameter email.");
+        }
+
+        const normalized: InviteData = {
+          email: invitation.email,
+          name: invitation.name ?? "",
+          position: invitation.position ?? "",
+          organizationName: invitation.organizationName,
+          inviterName: invitation.inviterName,
+          expiresAt: invitation.expiresAt,
+          token,
+        };
+
+        setInviteData(normalized);
+        setError(null);
+        setFormData((prev) => ({
+          ...prev,
+          email: invitation.email,
+          name: invitation.name ?? "",
+        }));
+      } catch (loadError) {
+        console.error("Failed to load invitation:", loadError);
+        setError("Unable to load invitation details. Please try again later.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadInvitation();
   }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -80,25 +114,40 @@ export default function InviteRegisterPage() {
       return;
     }
 
+    if (!inviteData) {
+      setError("Invitation details not found. Please reload the page.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    const nameToSubmit = (formData.name || inviteData.name || "").trim();
+    if (!nameToSubmit) {
+      setError("Please provide your name.");
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
-      // Simulate API call to register the invited user
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      console.log("Registering invited user:", {
-        ...formData,
-        inviteToken: inviteData?.token,
+      const response = await fetch(`/api/invitations/${inviteData.token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: nameToSubmit,
+          password: formData.password,
+          confirmPassword: formData.confirmPassword,
+        }),
       });
 
-      // In a real app, you would:
-      // 1. Send the registration data to your backend
-      // 2. Backend validates the invite token
-      // 3. Creates the user account
-      // 4. Sends verification email
-      // 5. Redirects to verification page
+      const data = await response.json();
 
-      // For now, redirect to verification page
-      router.push(`/verify-email?email=${encodeURIComponent(formData.email)}&invite=true`);
+      if (!response.ok) {
+        setError(data.error ?? "Registration failed. Please try again.");
+        return;
+      }
+
+      router.push(`/verify-email?email=${encodeURIComponent(inviteData.email)}&invite=true`);
     } catch (err) {
+      console.error("Invitation registration failed:", err);
       setError("Registration failed. Please try again.");
     } finally {
       setIsSubmitting(false);
@@ -170,7 +219,7 @@ export default function InviteRegisterPage() {
                         You're Invited!
                       </h2>
                       <p className="text-blue-600 dark:text-blue-400 font-medium">
-                        Join {inviteData?.companyName}
+                        Join {inviteData?.organizationName}
                       </p>
                     </div>
                   </div>
@@ -188,7 +237,7 @@ export default function InviteRegisterPage() {
                       <Building2 className="h-5 w-5 text-gray-600 dark:text-gray-300" />
                       <div>
                         <p className="text-sm text-gray-500 dark:text-gray-400">Company</p>
-                        <p className="font-semibold text-gray-900 dark:text-white">{inviteData?.companyName}</p>
+                        <p className="font-semibold text-gray-900 dark:text-white">{inviteData?.organizationName}</p>
                       </div>
                     </div>
 
@@ -222,7 +271,7 @@ export default function InviteRegisterPage() {
                   <div className="text-center">
                     <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Complete Registration</h1>
                     <p className="text-gray-600 dark:text-gray-300 mt-1">
-                      Set up your account to join {inviteData?.companyName}
+                    Set up your account to join {inviteData?.organizationName}
                     </p>
                   </div>
 

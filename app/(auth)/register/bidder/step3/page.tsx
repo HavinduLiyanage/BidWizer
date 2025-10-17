@@ -30,6 +30,10 @@ export default function BidderRegistrationStep3() {
     position: "",
   });
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [adminEmail, setAdminEmail] = useState("");
 
   useEffect(() => {
     // Load plan from step 2 or URL params
@@ -43,71 +47,145 @@ export default function BidderRegistrationStep3() {
         setSelectedPlan(planParam);
       }
     }
+
+    const step1Data = localStorage.getItem("bidder_step1");
+    if (step1Data) {
+      try {
+        const data = JSON.parse(step1Data);
+        if (data.email) {
+          setAdminEmail(String(data.email));
+        }
+      } catch (error) {
+        console.error("Failed to parse step 1 data:", error);
+      }
+    }
   }, []);
 
   const planFeatures = PLANS[selectedPlan];
   const maxSeats = planFeatures.seats || 1;
   const adminSeat = 1; // Admin is already registered in step 1
-  const remainingSeats = maxSeats - adminSeat - teamMembers.length; // Remaining seats for team members
+  const remainingSeats = Math.max(maxSeats - adminSeat - teamMembers.length, 0); // Remaining seats for team members
 
-  const handleAddMember = async (e: React.FormEvent) => {
+  const handleAddMember = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (remainingSeats <= 0) {
-      alert('You have reached the maximum number of team members for your plan.');
+      setErrorMessage('You have reached the maximum number of team members for your plan.');
+      return;
+    }
+
+    const trimmedName = formData.name.trim();
+    const trimmedEmail = formData.email.trim();
+    const trimmedPosition = formData.position.trim();
+
+    if (!trimmedName || !trimmedEmail || !trimmedPosition) {
+      setErrorMessage('All fields are required to add a team member.');
+      return;
+    }
+
+    const duplicate = teamMembers.some(
+      (member) => member.email.toLowerCase() === trimmedEmail.toLowerCase()
+    );
+
+    if (duplicate) {
+      setErrorMessage('This email is already in your invitation list.');
+      return;
+    }
+
+    if (adminEmail && trimmedEmail.toLowerCase() === adminEmail.toLowerCase()) {
+      setErrorMessage('The admin from step 1 is already included. Please invite a different team member.');
       return;
     }
 
     const newMember: TeamMember = {
       id: Date.now().toString(),
-      name: formData.name,
-      email: formData.email,
-      position: formData.position,
-      status: 'invited'
+      name: trimmedName,
+      email: trimmedEmail,
+      position: trimmedPosition,
+      status: 'pending',
     };
 
-    // Simulate sending invitation email
-    try {
-      // In a real app, you would call your backend API to send the invitation
-      console.log("Sending invitation to:", formData.email);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setTeamMembers([...teamMembers, newMember]);
-      setFormData({ name: "", email: "", position: "" });
-      setIsAddingMember(false);
-      
-      // Show success message
-      alert(`Invitation sent to ${formData.email}! They will receive an email with registration instructions.`);
-    } catch (error) {
-      console.error("Failed to send invitation:", error);
-      alert("Failed to send invitation. Please try again.");
-    }
+    setTeamMembers((prev) => [...prev, newMember]);
+    setFormData({ name: "", email: "", position: "" });
+    setIsAddingMember(false);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setSuccessMessage(`Added ${trimmedName}. Invites send when you finish setup.`);
   };
 
   const handleRemoveMember = (id: string) => {
     setTeamMembers(teamMembers.filter(member => member.id !== id));
   };
 
-  const handleResendInvitation = async (member: TeamMember) => {
+  const completeRegistration = async (membersOverride?: TeamMember[]) => {
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
     try {
-      console.log("Resending invitation to:", member.email);
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      alert(`Invitation resent to ${member.email}!`);
+      const step1Raw = typeof window !== "undefined" ? localStorage.getItem("bidder_step1") : null;
+      const step2Raw = typeof window !== "undefined" ? localStorage.getItem("bidder_step2") : null;
+
+      if (!step1Raw || !step2Raw) {
+        setErrorMessage("We couldn't find your earlier registration steps. Please restart the registration.");
+        router.push("/register/bidder/step1");
+        return;
+      }
+
+      const step1Data = JSON.parse(step1Raw);
+      const step2Data = JSON.parse(step2Raw);
+      const members = membersOverride ?? teamMembers;
+
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          flow: "bidder",
+          step1: step1Data,
+          step2: step2Data,
+          team: {
+            plan: selectedPlan,
+            teamMembers: members.map((member) => ({
+              name: member.name.trim(),
+              email: member.email.trim(),
+              position: member.position.trim(),
+            })),
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(data.error || "Unable to complete registration. Please try again.");
+        return;
+      }
+
+      localStorage.removeItem("bidder_step1");
+      localStorage.removeItem("bidder_step2");
+      localStorage.removeItem("bidder_step1_status");
+      localStorage.removeItem("bidder_step1_resume_token");
+      localStorage.setItem(
+        "bidder_registration_summary",
+        JSON.stringify({
+          email: step1Data.email,
+          organizationName: data.organization?.name ?? step1Data.companyName,
+          pendingInvitations: data.pendingInvitations ?? [],
+        }),
+      );
+
+      router.push(`/register/bidder/ready?email=${encodeURIComponent(step1Data.email)}`);
     } catch (error) {
-      console.error("Failed to resend invitation:", error);
-      alert("Failed to resend invitation. Please try again.");
+      console.error("Failed to complete registration:", error);
+      setErrorMessage("Unexpected error completing registration. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleSubmit = () => {
-    localStorage.setItem("bidder_step3", JSON.stringify({
-      plan: selectedPlan,
-      teamMembers: teamMembers
-    }));
-    router.push("/register/bidder/ready");
+    void completeRegistration();
   };
 
   const handleBack = () => {
@@ -115,7 +193,7 @@ export default function BidderRegistrationStep3() {
   };
 
   const handleSkip = () => {
-    router.push("/register/bidder/ready");
+    void completeRegistration([]);
   };
 
   return (
@@ -159,6 +237,18 @@ export default function BidderRegistrationStep3() {
                 </div>
               </div>
 
+              {errorMessage && (
+                <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {errorMessage}
+                </div>
+              )}
+
+              {successMessage && (
+                <div className="mb-6 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+                  {successMessage}
+                </div>
+              )}
+
               {/* Team Members List */}
               {teamMembers.length > 0 && (
                 <div className="mb-8">
@@ -188,24 +278,9 @@ export default function BidderRegistrationStep3() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              member.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                              member.status === 'invited' ? 'bg-blue-100 text-blue-800' :
-                              'bg-green-100 text-green-800'
-                            }`}>
-                              {member.status === 'pending' ? 'Pending' :
-                               member.status === 'invited' ? 'Invited' : 'Active'}
+                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              Queued
                             </span>
-                            {member.status === 'invited' && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleResendInvitation(member)}
-                                className="text-xs px-2 py-1 h-6"
-                              >
-                                Resend
-                              </Button>
-                            )}
                             <button
                               onClick={() => handleRemoveMember(member.id)}
                               className="text-gray-400 hover:text-red-500 transition-colors"
@@ -227,6 +302,7 @@ export default function BidderRegistrationStep3() {
                     <Button
                       onClick={() => setIsAddingMember(true)}
                       className="flex items-center gap-2"
+                      disabled={isSubmitting}
                     >
                       <Plus className="h-4 w-4" />
                       Add Team Member
@@ -288,8 +364,8 @@ export default function BidderRegistrationStep3() {
                         </div>
 
                         <div className="flex gap-3">
-                          <Button type="submit">
-                            Add Member
+                          <Button type="submit" disabled={isSubmitting}>
+                            {isSubmitting ? "Adding..." : "Add Member"}
                           </Button>
                           <Button
                             type="button"
@@ -327,7 +403,8 @@ export default function BidderRegistrationStep3() {
                 <button
                   type="button"
                   onClick={handleSkip}
-                  className="text-primary hover:underline text-sm font-medium sm:order-1"
+                  className="text-primary hover:underline text-sm font-medium sm:order-1 disabled:cursor-not-allowed disabled:text-gray-400"
+                  disabled={isSubmitting}
                 >
                   Skip for now
                 </button>
@@ -338,11 +415,12 @@ export default function BidderRegistrationStep3() {
                     variant="outline"
                     onClick={handleBack}
                     className="sm:w-auto"
+                    disabled={isSubmitting}
                   >
                     Back
                   </Button>
-                  <Button onClick={handleSubmit} className="sm:w-auto">
-                    Complete Setup
+                  <Button onClick={handleSubmit} className="sm:w-auto" disabled={isSubmitting}>
+                    {isSubmitting ? "Finishing..." : "Complete Setup"}
                   </Button>
                 </div>
               </div>

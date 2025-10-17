@@ -1,0 +1,378 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL") // session pooler for the running app
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String?
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  verificationTokens  VerificationToken[]
+  orgMembers          OrgMember[]
+  chatThreads         ChatThread[]
+  subscriptions       Subscription[]
+  aiUsage             AiUsage[]
+  invitationsSent     Invitation[]        @relation("InvitationInviter")
+  invitationsAccepted Invitation[]        @relation("InvitationAccepter")
+
+  @@map("users")
+}
+
+model VerificationToken {
+  id         String   @id @default(cuid())
+  identifier String // typically email
+  token      String   @unique
+  type       String // 'email-verify' | 'reset-password'
+  expires    DateTime
+  createdAt  DateTime @default(now())
+
+  // Relations
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([identifier, token])
+  @@index([identifier])
+  @@index([userId])
+  @@map("verification_tokens")
+}
+
+model Organization {
+  id          String           @id @default(cuid())
+  name        String
+  slug        String           @unique
+  description String?
+  logo        String?
+  industry    String?
+  website     String?
+  planTier    String?
+  type        OrganizationType @default(BIDDER)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  // Relations
+  members       OrgMember[]
+  tenders       Tender[]
+  subscriptions Subscription[]
+  aiUsages      AiUsage[]
+  plans         Plan[]
+  invitations   Invitation[]
+
+  @@map("organizations")
+}
+
+model OrgMember {
+  id        String        @id @default(cuid())
+  role      OrgMemberRole @default(MEMBER)
+  joinedAt  DateTime      @default(now())
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  position  String?
+
+  // Relations
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@map("org_members")
+}
+
+model Invitation {
+  id             String           @id @default(cuid())
+  email          String
+  name           String?
+  position       String?
+  token          String           @unique
+  status         InvitationStatus @default(PENDING)
+  type           InvitationType   @default(TEAM_MEMBER)
+  role           OrgMemberRole    @default(MEMBER)
+  expires        DateTime
+  invitedById    String
+  acceptedById   String?
+  organizationId String
+  acceptedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  invitedBy    User         @relation("InvitationInviter", fields: [invitedById], references: [id], onDelete: Cascade)
+  acceptedBy   User?        @relation("InvitationAccepter", fields: [acceptedById], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([token])
+  @@map("invitations")
+}
+
+model Tender {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  reference   String?      @unique
+  status      TenderStatus @default(DRAFT)
+  publishedAt DateTime?
+  deadline    DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  uploads        Upload[]
+  extractedFiles ExtractedFile[]
+  chunks         Chunk[]
+  chatThreads    ChatThread[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([deadline])
+  @@map("tenders")
+}
+
+model Upload {
+  id           String       @id @default(cuid())
+  filename     String
+  originalName String
+  kind         UploadKind
+  status       UploadStatus @default(PENDING)
+  size         Int
+  mimeType     String?
+  url          String? // keep if you like, but:
+  storageKey   String? // add this to store object path (e.g. tenders/{org}/{tender}/...)
+  orgId        String? // speeds up "does user belong to org?" checks
+  error        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  // Relations
+  tender         Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  tenderId       String
+  extractedFiles ExtractedFile[]
+
+  @@index([tenderId])
+  @@index([status])
+  @@index([orgId])
+  @@map("uploads")
+}
+
+model ExtractedFile {
+  id        String   @id @default(cuid())
+  filename  String
+  page      Int?
+  content   String?  @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tender   Tender  @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  tenderId String
+  upload   Upload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  uploadId String
+  chunks   Chunk[]
+
+  @@index([tenderId, uploadId, page])
+  @@map("extracted_files")
+}
+
+model Chunk {
+  id        String   @id @default(cuid())
+  content   String   @db.VarChar(1500)
+  embedding Json?
+  page      Int?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tender          Tender        @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  tenderId        String
+  extractedFile   ExtractedFile @relation(fields: [extractedFileId], references: [id], onDelete: Cascade)
+  extractedFileId String
+
+  @@index([tenderId, extractedFileId, page])
+  @@map("chunks")
+}
+
+model ChatThread {
+  id        String   @id @default(cuid())
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String
+  tender   Tender        @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  tenderId String
+  messages ChatMessage[]
+
+  @@index([userId])
+  @@index([tenderId])
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id        String          @id @default(cuid())
+  role      ChatMessageRole
+  content   String          @db.Text
+  metadata  Json?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  // Relations
+  thread   ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  threadId String
+
+  @@index([threadId])
+  @@index([createdAt])
+  @@map("chat_messages")
+}
+
+model AiUsage {
+  id           String   @id @default(cuid())
+  model        String
+  inputTokens  Int
+  outputTokens Int
+  cost         Decimal  @db.Decimal(10, 6)
+  month        DateTime // truncate to first day of month for rollups
+  createdAt    DateTime @default(now())
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  orgId        String
+
+  @@unique([orgId, userId, month, model]) // prevents duplicate rows per bucket/model/user
+  @@index([userId])
+  @@index([createdAt])
+  @@map("ai_usage")
+}
+
+model Plan {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  price       Decimal      @db.Decimal(10, 2)
+  interval    PlanInterval
+  features    Json?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relations
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  subscriptions  Subscription[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@index([isActive])
+  @@map("plans")
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  status             SubscriptionStatus
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean            @default(false)
+  canceledAt         DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  // Relations
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  plan           Plan         @relation(fields: [planId], references: [id], onDelete: Restrict)
+  planId         String
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([status])
+  @@index([currentPeriodEnd])
+  @@map("subscriptions")
+}
+
+// Enums
+enum OrgMemberRole {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum OrganizationType {
+  BIDDER
+  PUBLISHER
+}
+
+enum TenderStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+  AWARDED
+  CANCELLED
+}
+
+enum UploadKind {
+  zip
+  pdf
+}
+
+enum UploadStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ChatMessageRole {
+  user
+  assistant
+  system
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  UNPAID
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  TRIALING
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
+enum InvitationType {
+  TEAM_MEMBER
+}

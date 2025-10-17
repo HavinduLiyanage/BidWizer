@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -15,18 +15,80 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useUser } from "@/lib/hooks/use-session";
 
 export default function CompanyProfilePage() {
+  const { user, isLoading } = useUser();
   const [formData, setFormData] = useState({
-    companyName: "Acme Construction Ltd",
-    website: "https://www.acmeconstruction.com",
-    industry: "construction",
-    address: "123 Business Street, Colombo 03, Sri Lanka",
-    phone: "+94 11 234 5678",
+    companyName: "",
+    website: "",
+    industry: "",
+    address: "",
+    phone: "",
   });
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
-    console.log("Saving profile:", formData);
+  useEffect(() => {
+    const loadOrganizationData = async () => {
+      try {
+        const response = await fetch('/api/organization/profile');
+        if (response.ok) {
+          const data = await response.json();
+          setFormData({
+            companyName: data.organization.name || "",
+            website: data.organization.website || "",
+            industry: data.organization.industry || "",
+            address: data.organization.description || "",
+            phone: "", // Phone not in current schema
+          });
+        }
+      } catch (error) {
+        console.error('Error loading organization data:', error);
+        // Set default values if loading fails
+        setFormData({
+          companyName: "Your Company Name",
+          website: "",
+          industry: "",
+          address: "",
+          phone: "",
+        });
+      }
+    };
+
+    if (user) {
+      loadOrganizationData();
+    }
+  }, [user]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const response = await fetch('/api/organization/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.companyName,
+          website: formData.website,
+          industry: formData.industry,
+          description: formData.address,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update organization profile');
+      }
+
+      const result = await response.json();
+      alert("Company profile updated successfully!");
+    } catch (error) {
+      console.error("Error saving company profile:", error);
+      alert(`Error saving company profile: ${error instanceof Error ? error.message : 'Please try again.'}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -128,7 +190,9 @@ export default function CompanyProfilePage() {
               </div>
 
               <div className="pt-4">
-                <Button onClick={handleSave}>Save Changes</Button>
+                <Button onClick={handleSave} disabled={isSaving}>
+                  {isSaving ? "Saving..." : "Save Changes"}
+                </Button>
               </div>
             </CardContent>
           </Card>

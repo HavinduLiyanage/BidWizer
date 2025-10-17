@@ -17,10 +17,13 @@ export default function VerifyEmailPage() {
   const [isResending, setIsResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [verificationStatus, setVerificationStatus] = useState<'pending' | 'success' | 'error'>('pending');
+  const [verificationMessage, setVerificationMessage] = useState<string>("");
 
   useEffect(() => {
     const emailParam = searchParams.get("email");
     const inviteParam = searchParams.get("invite");
+    const tokenParam = searchParams.get("token");
     
     if (emailParam) {
       setEmail(emailParam);
@@ -29,7 +32,42 @@ export default function VerifyEmailPage() {
     if (inviteParam === "true") {
       setIsInvite(true);
     }
+
+    // If token is present, verify the email immediately
+    if (tokenParam) {
+      handleTokenVerification(tokenParam);
+    }
   }, [searchParams]);
+
+  const handleTokenVerification = async (token: string) => {
+    try {
+      const response = await fetch('/api/auth/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setVerificationStatus('success');
+        setVerificationMessage(data.message);
+        setEmail(data.user.email);
+        // Redirect to login after 3 seconds
+        setTimeout(() => {
+          router.push('/login?verified=true');
+        }, 3000);
+      } else {
+        setVerificationStatus('error');
+        setVerificationMessage(data.error);
+      }
+    } catch (error) {
+      setVerificationStatus('error');
+      setVerificationMessage('Failed to verify email. Please try again.');
+    }
+  };
 
   useEffect(() => {
     if (countdown > 0) {
@@ -80,18 +118,39 @@ export default function VerifyEmailPage() {
                   initial={{ scale: 0.8 }}
                   animate={{ scale: 1 }}
                   transition={{ delay: 0.2, duration: 0.5 }}
-                  className="w-20 h-20 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-6"
+                  className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${
+                    verificationStatus === 'success' 
+                      ? 'bg-green-100 dark:bg-green-900/30' 
+                      : verificationStatus === 'error'
+                      ? 'bg-red-100 dark:bg-red-900/30'
+                      : 'bg-blue-100 dark:bg-blue-900/30'
+                  }`}
                 >
-                  <Mail className="h-10 w-10 text-blue-600 dark:text-blue-400" />
+                  {verificationStatus === 'success' ? (
+                    <CheckCircle className="h-10 w-10 text-green-600 dark:text-green-400" />
+                  ) : verificationStatus === 'error' ? (
+                    <AlertCircle className="h-10 w-10 text-red-600 dark:text-red-400" />
+                  ) : (
+                    <Mail className="h-10 w-10 text-blue-600 dark:text-blue-400" />
+                  )}
                 </motion.div>
 
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
-                  Check Your Email
+                  {verificationStatus === 'success' 
+                    ? 'Email Verified!' 
+                    : verificationStatus === 'error'
+                    ? 'Verification Failed'
+                    : 'Check Your Email'
+                  }
                 </h1>
                 
                 <p className="text-gray-600 dark:text-gray-300 mb-6 text-lg">
-                  We've sent a verification link to{" "}
-                  <span className="font-semibold text-gray-900 dark:text-white">{email}</span>
+                  {verificationStatus === 'success' 
+                    ? verificationMessage
+                    : verificationStatus === 'error'
+                    ? verificationMessage
+                    : `We've sent a verification link to ${email ? `"${email}"` : 'your email address'}`
+                  }
                 </p>
 
                 {isInvite && (
@@ -134,56 +193,89 @@ export default function VerifyEmailPage() {
                   </div>
                 </div>
 
-                {/* Resend Email Section */}
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Didn't receive the email?
-                  </p>
-                  
-                  <Button
-                    onClick={handleResendEmail}
-                    disabled={isResending || countdown > 0}
-                    variant="outline"
-                    className="w-full sm:w-auto"
-                  >
-                    {isResending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                        Sending...
-                      </>
-                    ) : countdown > 0 ? (
-                      `Resend in ${countdown}s`
-                    ) : (
-                      <>
-                        <Mail className="h-4 w-4 mr-2" />
-                        Resend Verification Email
-                      </>
-                    )}
-                  </Button>
-
-                  {resendSuccess && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="flex items-center justify-center gap-2 text-green-600 dark:text-green-400 text-sm"
+                {/* Resend Email Section - only show when verification is pending */}
+                {verificationStatus === 'pending' && (
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Didn't receive the email?
+                    </p>
+                    
+                    <Button
+                      onClick={handleResendEmail}
+                      disabled={isResending || countdown > 0}
+                      variant="outline"
+                      className="w-full sm:w-auto"
                     >
-                      <CheckCircle className="h-4 w-4" />
-                      Verification email sent successfully!
-                    </motion.div>
-                  )}
-                </div>
+                      {isResending ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                          Sending...
+                        </>
+                      ) : countdown > 0 ? (
+                        `Resend in ${countdown}s`
+                      ) : (
+                        <>
+                          <Mail className="h-4 w-4 mr-2" />
+                          Resend Verification Email
+                        </>
+                      )}
+                    </Button>
+
+                    {resendSuccess && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-center justify-center gap-2 text-green-600 dark:text-green-400 text-sm"
+                      >
+                        <CheckCircle className="h-4 w-4" />
+                        Verification email sent successfully!
+                      </motion.div>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                    Already verified your email?
-                  </p>
-                  <Button
-                    onClick={handleCheckVerification}
-                    className="w-full sm:w-auto"
-                  >
-                    Continue to Login
-                    <ArrowRight className="h-4 w-4 ml-2" />
-                  </Button>
+                  {verificationStatus === 'pending' && (
+                    <>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                        Already verified your email?
+                      </p>
+                      <Button
+                        onClick={handleCheckVerification}
+                        className="w-full sm:w-auto"
+                      >
+                        Continue to Login
+                        <ArrowRight className="h-4 w-4 ml-2" />
+                      </Button>
+                    </>
+                  )}
+                  
+                  {verificationStatus === 'success' && (
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                        Redirecting to login...
+                      </p>
+                      <Button
+                        onClick={() => router.push('/login?verified=true')}
+                        className="w-full sm:w-auto"
+                      >
+                        Go to Login
+                        <ArrowRight className="h-4 w-4 ml-2" />
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {verificationStatus === 'error' && (
+                    <div className="text-center">
+                      <Button
+                        onClick={() => router.push('/register/bidder/step1')}
+                        className="w-full sm:w-auto"
+                      >
+                        Try Again
+                        <ArrowRight className="h-4 w-4 ml-2" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-6 text-xs text-gray-400 dark:text-gray-500">

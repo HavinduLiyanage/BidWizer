@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import { 
   User, 
   Building2, 
@@ -13,10 +14,16 @@ import {
   ChevronDown,
   HelpCircle
 } from "lucide-react";
+import { useUser } from "@/lib/hooks/use-session";
 
 export function UserMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { user, initials, isLoading } = useUser();
+
+  const handleLogout = () => {
+    signOut({ callbackUrl: '/login' });
+  };
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -64,13 +71,17 @@ export function UserMenu() {
       >
         {/* User Avatar */}
         <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-indigo-600 flex items-center justify-center shadow-sm">
-          <span className="text-white text-sm font-semibold">JD</span>
+          <span className="text-white text-sm font-semibold">{initials}</span>
         </div>
         
         {/* User Info - Hidden on mobile */}
         <div className="hidden md:block text-left">
-          <div className="text-sm font-semibold text-gray-900">John Doe</div>
-          <div className="text-xs text-gray-500">Acme Corp</div>
+          <div className="text-sm font-semibold text-gray-900">
+            {isLoading ? "..." : user?.name || "User"}
+          </div>
+          <div className="text-xs text-gray-500">
+            {user?.organizationType || "Member"}
+          </div>
         </div>
 
         <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -83,12 +94,16 @@ export function UserMenu() {
           <div className="px-4 py-3 border-b border-gray-100">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-indigo-600 flex items-center justify-center shadow-sm">
-                <span className="text-white font-semibold">JD</span>
+                <span className="text-white font-semibold">{initials}</span>
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-gray-900 truncate">John Doe</div>
-                <div className="text-xs text-gray-600 truncate">CEO, Acme Corp</div>
-                <div className="text-xs text-gray-500">john.doe@acmecorp.com</div>
+                <div className="text-sm font-semibold text-gray-900 truncate">
+                  {isLoading ? "Loading..." : user?.name || "User"}
+                </div>
+                <div className="text-xs text-gray-600 truncate">
+                  {user?.orgRole || "Member"}
+                </div>
+                <div className="text-xs text-gray-500">{user?.email}</div>
               </div>
             </div>
           </div>
@@ -123,7 +138,7 @@ export function UserMenu() {
             <button
               onClick={() => {
                 setIsOpen(false);
-                // Handle logout
+                handleLogout();
               }}
               className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-red-50 transition-colors group"
             >

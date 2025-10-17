@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, User, Mail, Lock, ArrowRight, CheckCircle } from "lucide-react";
+import { Building2, User, Mail, Lock, ArrowRight, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
@@ -22,12 +22,56 @@ export default function PublisherRegistrationPage() {
     confirmPassword: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    router.push("/login?registered=true");
+    setErrorMessage(null);
+
+    if (formData.password !== formData.confirmPassword) {
+      setErrorMessage("Passwords do not match. Please re-enter them.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (formData.password.length < 8) {
+      setErrorMessage("Password must be at least 8 characters long.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    const payload = {
+      flow: "publisher" as const,
+      organizationName: formData.organizationName.trim(),
+      contactPerson: formData.contactPerson.trim(),
+      email: formData.email.trim(),
+      password: formData.password,
+      confirmPassword: formData.confirmPassword,
+    };
+
+    try {
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(data.error ?? "Failed to create your account. Please try again.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      router.push(`/verify-email?email=${encodeURIComponent(payload.email)}`);
+    } catch (error) {
+      console.error("Publisher registration failed:", error);
+      setErrorMessage("Unexpected error occurred. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const benefits = [
@@ -76,6 +120,13 @@ export default function PublisherRegistrationPage() {
 
                 <Card className="bg-white border-gray-200 shadow-sm">
                   <CardContent className="p-6 md:p-8">
+                    {errorMessage && (
+                      <div className="mb-6 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
+                        <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                        <p className="text-sm text-red-700">{errorMessage}</p>
+                      </div>
+                    )}
+
                     <form onSubmit={handleSubmit} className="space-y-6">
                       {/* Field */}
                       <div className="space-y-2">
