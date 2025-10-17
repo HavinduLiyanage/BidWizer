@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, User, Mail, Lock, ArrowRight, AlertCircle } from "lucide-react";
+import { Building2, User, Mail, Lock, ArrowRight, AlertCircle, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";

@@ -64,7 +64,7 @@ export async function sendBidderRegistrationConfirmationEmail({
 
   try {
     const safeName = firstName.trim() || 'there'
-    const resumeLink = `${APP_BASE_URL}/register/bidder/step2?token=${encodeURIComponent(resumeToken)}&email=${encodeURIComponent(email)}`
+    const resumeLink = `${APP_BASE_URL}/register/bidder/email-confirmed?token=${encodeURIComponent(resumeToken)}&email=${encodeURIComponent(email)}`
 
     await resendClient.emails.send({
       from: "BidWizer <onboarding@resend.dev>",
@@ -121,33 +121,38 @@ export async function sendInvitationEmail({
   }
 
   try {
-    const inviteLink = `${APP_BASE_URL}/invite-register?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`
+    const inviteLink = `${APP_BASE_URL}/team/join?token=${encodeURIComponent(token)}`
+    const recipient = email.trim()
+
+    console.info(`[email] Sending invitation to ${recipient} for ${companyName}`)
 
     await resendClient.emails.send({
       from: "BidWizer <onboarding@resend.dev>",
-      to: [email],
-      subject: `You're invited to join ${companyName} on BidWizer`,
+      to: [recipient],
+      subject: `Join ${companyName} on BidWizer`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px;">
-          <h2 style="color: #111827;">Join ${companyName} on BidWizer</h2>
+          <h2 style="color: #111827; margin-bottom: 12px;">You're invited to BidWizer</h2>
           <p style="color: #4b5563;">
-            <strong>${inviterName}</strong> has invited you to collaborate on BidWizer as a <strong>${position}</strong>.
+            <strong>${inviterName}</strong> invited you to join <strong>${companyName}</strong> on BidWizer${position ? ` as a <strong>${position}</strong>` : ''}.
           </p>
           <p style="color: #4b5563;">
-            BidWizer helps your team manage tender submissions, collaborate on documents, and track progress in one place.
+            Click below to create your login. You'll choose a password and then sign in with your email address.
           </p>
-          <p style="text-align: center; margin: 32px 0;">
+          <p style="text-align: center; margin: 28px 0;">
             <a href="${inviteLink}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
-              Accept invitation & create account
+              Join your team
             </a>
           </p>
-          <p style="color: #6b7280;">This invitation expires in 7 days.</p>
-          <p style="color: #9ca3af; font-size: 12px;">If the button doesn't work, copy and paste this link into your browser:</p>
-          <p style="color: #2563eb; font-size: 12px;">${inviteLink}</p>
+          <p style="color: #4b5563;">
+            This link expires in 7 days. If the button doesn't work, copy and paste this link into your browser:
+          </p>
+          <p style="color: #2563eb; font-size: 12px; word-break: break-all;">${inviteLink}</p>
         </div>
       `,
     })
   } catch (error) {
     console.error(`Failed to send invitation email to ${email}:`, error)
+    throw error
   }
 }

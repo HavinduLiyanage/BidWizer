@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
 import { Stepper } from "@/components/Stepper";
@@ -35,37 +36,25 @@ export default function BidderRegistrationStep2() {
     }
 
     const token = searchParams.get("token");
-    const step1Raw = localStorage.getItem("bidder_step1");
+    const step1Raw = localStorage.getItem("bidder_step1_temp");
+    const step1Permanent = localStorage.getItem("bidder_step1");
     const status = localStorage.getItem("bidder_step1_status");
     const storedToken = localStorage.getItem("bidder_step1_resume_token");
 
-    if (token && storedToken) {
-      if (token === storedToken) {
-        if (!step1Raw) {
-          localStorage.removeItem("bidder_step1_status");
-          localStorage.removeItem("bidder_step1_resume_token");
-          router.replace("/register/bidder/step1");
-          return;
-        }
-
-        localStorage.setItem("bidder_step1_status", "confirmed");
-        localStorage.removeItem("bidder_step1_resume_token");
-        setIsAccessReady(true);
-
-        const params = new URLSearchParams(window.location.search);
-        params.delete("token");
-        const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
-        router.replace(nextUrl);
-        return;
+    // If email is confirmed, allow access regardless of token validation
+    if (status === "confirmed") {
+      // Move any temp data to permanent storage
+      if (step1Raw) {
+        localStorage.setItem("bidder_step1", step1Raw);
+        localStorage.removeItem("bidder_step1_temp");
       }
-
-      router.replace("/register/bidder/step1?confirmation=required");
-      return;
-    }
-
-    if (status === "confirmed" && step1Raw) {
+      
+      // Clean up tokens
+      localStorage.removeItem("bidder_step1_resume_token");
+      
       setIsAccessReady(true);
 
+      // Clean up URL if there's a token
       if (token) {
         const params = new URLSearchParams(window.location.search);
         params.delete("token");
@@ -75,7 +64,31 @@ export default function BidderRegistrationStep2() {
       return;
     }
 
-    if (!step1Raw) {
+    // If no confirmed status, check token validation
+    if (token && storedToken && token === storedToken) {
+      if (!step1Raw) {
+        localStorage.removeItem("bidder_step1_status");
+        localStorage.removeItem("bidder_step1_resume_token");
+        router.replace("/register/bidder/step1");
+        return;
+      }
+
+      // Move temp data to permanent storage and mark as confirmed
+      localStorage.setItem("bidder_step1", step1Raw);
+      localStorage.setItem("bidder_step1_status", "confirmed");
+      localStorage.removeItem("bidder_step1_resume_token");
+      localStorage.removeItem("bidder_step1_temp");
+      setIsAccessReady(true);
+
+      const params = new URLSearchParams(window.location.search);
+      params.delete("token");
+      const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+      router.replace(nextUrl);
+      return;
+    }
+
+    // No valid access - redirect to step 1
+    if (!step1Raw && !step1Permanent) {
       router.replace("/register/bidder/step1");
       return;
     }
@@ -126,6 +139,12 @@ export default function BidderRegistrationStep2() {
       return;
     }
 
+    // Validate company description length
+    if (formData.about.trim().length < 20) {
+      alert('Please provide at least 20 characters in the company description');
+      return;
+    }
+
     const trimmedData = {
       companyName: formData.companyName.trim(),
       industry: formData.industry,
@@ -142,8 +161,43 @@ export default function BidderRegistrationStep2() {
     router.push("/register/bidder/step1");
   };
 
+  // Form validation
+  const isFormValid = 
+    formData.companyName.trim() &&
+    formData.industry &&
+    (formData.industry !== 'other' || formData.otherIndustry.trim()) &&
+    formData.website.trim() &&
+    formData.about.trim().length >= 20;
+
   if (!isAccessReady) {
-    return null;
+    return (
+      <>
+        <SiteHeader variant="page" />
+
+        <main className="flex-1 bg-slate-50 py-12">
+          <div className="container mx-auto px-4 md:px-6">
+            <div className="max-w-2xl mx-auto">
+              <Stepper currentStep={2} completedSteps={[1]} />
+
+              <div className="bg-white rounded-2xl shadow-sm p-12 flex flex-col items-center justify-center gap-4 text-center">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                <div className="space-y-2">
+                  <p className="text-lg font-semibold text-gray-900">
+                    Hold tight...
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    We&apos;re verifying your confirmation link so you can continue your
+                    registration.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <SiteFooter />
+      </>
+    );
   }
 
   return (
@@ -253,6 +307,17 @@ export default function BidderRegistrationStep2() {
                     rows={6}
                     required
                   />
+                  <div className="flex justify-between items-center text-xs">
+                    <span className={`${formData.about.length < 20 ? 'text-red-500' : 'text-green-600'}`}>
+                      {formData.about.length < 20 
+                        ? `Please provide at least ${20 - formData.about.length} more characters`
+                        : 'Description meets minimum requirements'
+                      }
+                    </span>
+                    <span className="text-gray-500">
+                      {formData.about.length}/20+ characters
+                    </span>
+                  </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4 pt-4">
@@ -264,7 +329,7 @@ export default function BidderRegistrationStep2() {
                   >
                     Back
                   </Button>
-                  <Button type="submit" className="sm:flex-1">
+                  <Button type="submit" className="sm:flex-1" disabled={!isFormValid}>
                     Complete the profile
                   </Button>
                 </div>

@@ -48,7 +48,7 @@ export default function DashboardPage() {
                       <h3 className="font-semibold truncate">
                         {publisher.name}
                       </h3>
-                      <Button variant="link" className="p-0 h-auto text-sm">
+                      <Button variant="ghost" className="p-0 h-auto text-sm text-blue-600 hover:text-blue-800">
                         View Profile
                       </Button>
                     </div>

@@ -36,6 +36,12 @@ export default function InviteRegisterPage() {
   });
 
   useEffect(() => {
+    // Legacy route: forward to the new join page so previous links keep working.
+    const query = searchParams.toString();
+    router.replace(`/team/join${query ? `?${query}` : ""}`);
+  }, [router, searchParams]);
+
+  useEffect(() => {
     const token = searchParams.get("token");
     if (!token) {
       setError("Invalid invite link. Please use the link provided in your email.");
@@ -74,7 +80,7 @@ export default function InviteRegisterPage() {
           organizationName: invitation.organizationName,
           inviterName: invitation.inviterName,
           expiresAt: invitation.expiresAt,
-          token,
+          token: token || "",
         };
 
         setInviteData(normalized);
@@ -145,7 +151,12 @@ export default function InviteRegisterPage() {
         return;
       }
 
-      router.push(`/verify-email?email=${encodeURIComponent(inviteData.email)}&invite=true`);
+      const nextParams = new URLSearchParams({
+        registered: "invite",
+        email: inviteData.email,
+        lockEmail: "true",
+      });
+      router.push(`/login?${nextParams.toString()}`);
     } catch (err) {
       console.error("Invitation registration failed:", err);
       setError("Registration failed. Please try again.");

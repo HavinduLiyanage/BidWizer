@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcrypt'
 import { z } from 'zod'
+import crypto from 'crypto'
 import { PLANS, type PlanTier } from '@/lib/entitlements'
 import { db } from '@/lib/db'
 import { sendInvitationEmail, sendVerificationEmail } from '@/lib/email'
@@ -15,7 +16,7 @@ const teamMemberSchema = z.object({
 const createStrongPasswordSchema = () =>
   z
     .string()
-    .min(12, 'Password must be at least 12 characters long')
+    .min(8, 'Password must be at least 8 characters long')
     .regex(/[A-Z]/, 'Password must include at least one uppercase letter')
     .regex(/[a-z]/, 'Password must include at least one lowercase letter')
     .regex(/\d/, 'Password must include at least one number')
@@ -173,7 +174,7 @@ async function handleBidderRegistration(rawBody: unknown) {
   const organizationSlug = await generateOrganizationSlug(step1.companyName)
   const inviteExpiry = new Date(Date.now() + SEVEN_DAYS_IN_MS)
 
-  const { user, organization, verificationToken, invitations } = await db.$transaction(
+  const { user, organization, invitations } = await db.$transaction(
     async (tx) => {
       const organization = await tx.organization.create({
         data: {
@@ -192,6 +193,7 @@ async function handleBidderRegistration(rawBody: unknown) {
           email: step1.email,
           password: hashedPassword,
           name: adminName,
+          emailVerified: new Date(), // Auto-verify admin user email
         },
       })
 
@@ -201,16 +203,6 @@ async function handleBidderRegistration(rawBody: unknown) {
           organizationId: organization.id,
           role: 'ADMIN',
           position: step1.position,
-        },
-      })
-
-      const verificationToken = await tx.verificationToken.create({
-        data: {
-          identifier: step1.email,
-          token: crypto.randomUUID(),
-          type: 'email-verify',
-          expires: new Date(Date.now() + ONE_DAY_IN_MS),
-          userId: user.id,
         },
       })
 
@@ -233,11 +225,10 @@ async function handleBidderRegistration(rawBody: unknown) {
         )
       )
 
-      return { user, organization, verificationToken, invitations }
+      return { user, organization, invitations }
     }
   )
 
-  await sendVerificationEmail(step1.email, verificationToken.token)
   await Promise.all(
     invitations.map((invitation) =>
       sendInvitationEmail({
@@ -252,7 +243,7 @@ async function handleBidderRegistration(rawBody: unknown) {
 
   const response: Record<string, unknown> = {
     message:
-      'Bidder registration initiated. Please verify your email to activate the account. Invitations have been sent to your team members.',
+      'Bidder registration completed successfully. Your account is ready to use. Invitations have been sent to your team members.',
     user: {
       id: user.id,
       email: user.email,
@@ -272,12 +263,11 @@ async function handleBidderRegistration(rawBody: unknown) {
       status: invitation.status,
       expiresAt: invitation.expires,
     })),
-    requiresEmailVerification: true,
+    requiresEmailVerification: false,
   }
 
   if (process.env.NODE_ENV !== 'production') {
     response.debug = {
-      verificationToken: verificationToken.token,
       invitationTokens: invitations.map((invitation) => ({
         email: invitation.email,
         token: invitation.token,

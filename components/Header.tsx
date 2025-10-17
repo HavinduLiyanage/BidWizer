@@ -4,18 +4,26 @@ import Link from "next/link";
 import { useState } from "react";
 import { Menu, X, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { signOut } from "next-auth/react";
 
 export function Header() {
   const [isOpen, setIsOpen] = useState(false);
+
+  // Handle logo click - logout user and redirect to homepage
+  const handleLogoClick = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    await signOut({ redirect: false })
+    window.location.href = '/'
+  }
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-white shadow-sm">
       <div className="container mx-auto px-4 md:px-6">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <Link href="/" className="flex items-center">
+          <button onClick={handleLogoClick} className="flex items-center cursor-pointer">
             <span className="text-2xl font-bold text-primary">BidWizer</span>
-          </Link>
+          </button>
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-8">

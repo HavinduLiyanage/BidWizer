@@ -20,14 +20,20 @@ const handler = NextAuth({
       async authorize(credentials) {
         try {
           const { email, password } = loginSchema.parse(credentials)
+          const normalizedEmail = email.trim().toLowerCase()
 
-          // Find user by email
-          const user = await db.user.findUnique({
-            where: { email },
+          // Find user by email (case-insensitive to match UI input)
+          const user = await db.user.findFirst({
+            where: {
+              email: {
+                equals: normalizedEmail,
+                mode: 'insensitive',
+              },
+            },
           })
 
           if (!user) {
-            return null
+            throw new Error('CredentialsSignin')
           }
 
           if (!user.emailVerified) {
@@ -38,7 +44,7 @@ const handler = NextAuth({
           const isValidPassword = await bcrypt.compare(password, user.password)
 
           if (!isValidPassword) {
-            return null
+            throw new Error('CredentialsSignin')
           }
 
           const membership = await db.orgMember.findFirst({
@@ -61,8 +67,16 @@ const handler = NextAuth({
             orgRole: membership?.role ?? null,
           }
         } catch (error) {
+          if (error instanceof z.ZodError) {
+            throw new Error('CredentialsSignin')
+          }
+
+          if (error instanceof Error && ['EmailNotVerified', 'CredentialsSignin'].includes(error.message)) {
+            throw error
+          }
+
           console.error('Auth error:', error)
-          return null
+          throw new Error('CredentialsSignin')
         }
       },
     }),

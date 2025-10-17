@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Mail, Info, CheckCircle, AlertCircle, Loader2, Eye, EyeOff } from "lucide-react";
-import { Header } from "@/components/Header";
+import SiteHeader from "@/components/site-header";
 import { Footer } from "@/components/Footer";
 import { Stepper } from "@/components/Stepper";
 import { Button } from "@/components/ui/button";
@@ -36,25 +36,122 @@ export default function BidderRegistrationStep1() {
       return;
     }
 
-    const stored = localStorage.getItem("bidder_step1");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        setFormData((prev) => ({ ...prev, ...parsed }));
-      } catch (error) {
-        console.error("Failed to parse stored step 1 data:", error);
-      }
+    const storedTemp = localStorage.getItem("bidder_step1_temp");
+    const storedFinal = localStorage.getItem("bidder_step1");
+    const source = storedTemp ?? storedFinal;
+
+    if (!source) {
+      return;
     }
 
-    const status = localStorage.getItem("bidder_step1_status");
-    if (status === "pending") {
-      setConfirmationSent(true);
+    try {
+      const parsed = JSON.parse(source);
+      const { password: _ignoredPassword, confirmPassword: _ignoredConfirm, ...rest } = parsed;
+
+      setFormData((prev) => ({
+        ...prev,
+        ...rest,
+        password: prev.password,
+        confirmPassword: prev.confirmPassword,
+      }));
+    } catch (error) {
+      console.error("Failed to parse stored step 1 data:", error);
+    }
+  }, []);
+
+  // Session management - detect fresh sessions and clear old data
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    // Check if this is a fresh session by looking for session marker
+    const sessionMarker = sessionStorage.getItem("bidder_registration_session");
+    const lastVisit = localStorage.getItem("bidder_last_visit");
+    const now = Date.now();
+    
+    // If no session marker or it's been more than 30 minutes since last visit, treat as fresh session
+    const isFreshSession = !sessionMarker || !lastVisit || (now - parseInt(lastVisit)) > 30 * 60 * 1000;
+    
+    if (isFreshSession) {
+      // Clear all bidder registration data for fresh session
+      localStorage.removeItem("bidder_step1_status");
+      localStorage.removeItem("bidder_step1_temp");
+      localStorage.removeItem("bidder_step1_resume_token");
+      localStorage.removeItem("bidder_registration_summary");
+      
+      // Set session marker and update last visit
+      sessionStorage.setItem("bidder_registration_session", "active");
+      localStorage.setItem("bidder_last_visit", now.toString());
+      
+      // Reset all state for fresh session
+      setConfirmationSent(false);
       setIsEmailConfirmed(false);
-      setSuccessMessage((prev) => prev ?? "A confirmation email was already sent. Check your inbox to continue to Step 2.");
-    } else if (status === "confirmed") {
-      setConfirmationSent(true);
-      setIsEmailConfirmed(true);
-      setSuccessMessage("Email confirmed. You can continue to Step 2.");
+      setErrorMessage(null);
+      setSuccessMessage(null);
+      setFormData({
+        companyName: "",
+        firstName: "",
+        lastName: "",
+        position: "",
+        email: "",
+        password: "",
+        confirmPassword: "",
+      });
+      
+      return; // Exit early for fresh session
+    }
+
+    // For existing sessions, check for stored data
+    const status = localStorage.getItem("bidder_step1_status");
+    const tempData = localStorage.getItem("bidder_step1_temp");
+    
+    // Only show confirmation message if there's actual form data stored
+    if (status === "pending" && tempData) {
+      try {
+        const parsedData = JSON.parse(tempData);
+        // Only show message if there's a valid email in the stored data
+        if (parsedData.email && parsedData.email.trim()) {
+          const { password: _ignoredPassword, confirmPassword: _ignoredConfirm, ...rest } = parsedData;
+
+          setFormData((prev) => ({
+            ...prev,
+            ...rest,
+            password: "",
+            confirmPassword: "",
+          }));
+          setConfirmationSent(true);
+          setIsEmailConfirmed(false);
+          setSuccessMessage("A confirmation email was already sent. Check your inbox to continue to Step 2.");
+        }
+      } catch (error) {
+        // If tempData is corrupted, clear the status
+        localStorage.removeItem("bidder_step1_status");
+        localStorage.removeItem("bidder_step1_temp");
+        localStorage.removeItem("bidder_step1_resume_token");
+      }
+    } else if (status === "confirmed" && tempData) {
+      try {
+        const parsedData = JSON.parse(tempData);
+        if (parsedData.email && parsedData.email.trim()) {
+          const { password: _ignoredPassword, confirmPassword: _ignoredConfirm, ...rest } = parsedData;
+
+          setFormData((prev) => ({
+            ...prev,
+            ...rest,
+            password: "",
+            confirmPassword: "",
+          }));
+          setConfirmationSent(true);
+          setIsEmailConfirmed(true);
+          setSuccessMessage("Email confirmed. You can continue to Step 2.");
+        }
+      } catch (error) {
+        // If tempData is corrupted, clear the status
+        localStorage.removeItem("bidder_step1_status");
+        localStorage.removeItem("bidder_step1_temp");
+        localStorage.removeItem("bidder_step1_resume_token");
+      }
     }
   }, []);
 
@@ -73,21 +170,70 @@ export default function BidderRegistrationStep1() {
     const handleStorage = (event: StorageEvent) => {
       if (event.key === "bidder_step1_status") {
         const newStatus = event.newValue ?? "";
-        const isPending = newStatus === "pending";
-        const isConfirmed = newStatus === "confirmed";
+        const tempData = localStorage.getItem("bidder_step1_temp");
+        
+        // Only update state if there's actual form data stored
+        if (tempData) {
+          try {
+            const parsedData = JSON.parse(tempData);
+            if (parsedData.email && parsedData.email.trim()) {
+              const isPending = newStatus === "pending";
+              const isConfirmed = newStatus === "confirmed";
+              const { password: _ignoredPassword, confirmPassword: _ignoredConfirm, ...rest } = parsedData;
 
-        setConfirmationSent(isPending || isConfirmed);
-        setIsEmailConfirmed(isConfirmed);
+              setFormData((prev) => ({
+                ...prev,
+                ...rest,
+                password: isConfirmed ? "" : prev.password,
+                confirmPassword: isConfirmed ? "" : prev.confirmPassword,
+              }));
+              setConfirmationSent(isPending || isConfirmed);
+              setIsEmailConfirmed(isConfirmed);
 
-        if (isConfirmed) {
-          setSuccessMessage("Email confirmed. You can continue to Step 2.");
-          setErrorMessage(null);
+              if (isConfirmed) {
+                setSuccessMessage("Email confirmed. You can continue to Step 2.");
+                setErrorMessage(null);
+              }
+            }
+          } catch (error) {
+            // If tempData is corrupted, clear the status
+            localStorage.removeItem("bidder_step1_status");
+            localStorage.removeItem("bidder_step1_temp");
+            localStorage.removeItem("bidder_step1_resume_token");
+          }
         }
       }
     };
 
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  // Cleanup session data when user leaves the page
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleBeforeUnload = () => {
+      // Clear session marker when user leaves the page
+      sessionStorage.removeItem("bidder_registration_session");
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // User switched tabs or minimized browser - clear session marker
+        sessionStorage.removeItem("bidder_registration_session");
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   const validatePassword = (value: string): string | null => {
@@ -140,7 +286,18 @@ export default function BidderRegistrationStep1() {
     }
   };
 
-  const passwordsMatch = formData.password === formData.confirmPassword && formData.confirmPassword.length > 0;
+  const passwordsMatch =
+    formData.password === formData.confirmPassword && formData.confirmPassword.length > 0;
+  const passwordValidationError = validatePassword(formData.password);
+  const isSubmitDisabled =
+    isSubmitting ||
+    Boolean(passwordValidationError) ||
+    !passwordsMatch ||
+    !formData.companyName.trim() ||
+    !formData.firstName.trim() ||
+    !formData.lastName.trim() ||
+    !formData.position.trim() ||
+    !formData.email.trim();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,7 +339,8 @@ export default function BidderRegistrationStep1() {
     setSuccessMessage(null);
 
     try {
-      localStorage.setItem("bidder_step1", JSON.stringify(trimmedData));
+      // Store temporary data for the waiting page
+      localStorage.setItem("bidder_step1_temp", JSON.stringify(trimmedData));
       localStorage.setItem("bidder_step1_resume_token", resumeToken);
       localStorage.setItem("bidder_step1_status", "pending");
 
@@ -206,6 +364,7 @@ export default function BidderRegistrationStep1() {
       if (!response.ok) {
         localStorage.removeItem("bidder_step1_status");
         localStorage.removeItem("bidder_step1_resume_token");
+        localStorage.removeItem("bidder_step1_temp");
         setConfirmationSent(false);
         setIsEmailConfirmed(false);
         setErrorMessage(
@@ -215,17 +374,13 @@ export default function BidderRegistrationStep1() {
         return;
       }
 
-      setConfirmationSent(true);
-      setIsEmailConfirmed(false);
-      setSuccessMessage(
-        typeof result?.message === "string"
-          ? result.message
-          : "Confirmation email sent. Check your inbox to continue to Step 2."
-      );
+      // Redirect to waiting confirmation page
+      router.push(`/register/bidder/waiting-confirmation?email=${encodeURIComponent(trimmedData.email)}`);
     } catch (error) {
       console.error("Failed to send confirmation email:", error);
       localStorage.removeItem("bidder_step1_status");
       localStorage.removeItem("bidder_step1_resume_token");
+      localStorage.removeItem("bidder_step1_temp");
       setConfirmationSent(false);
       setIsEmailConfirmed(false);
       setErrorMessage("Unexpected error sending confirmation email. Please try again.");
@@ -240,7 +395,7 @@ export default function BidderRegistrationStep1() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Header />
+      <SiteHeader variant="page" />
       
       <main className="flex-1 bg-slate-50 py-12">
         <div className="container mx-auto px-4 md:px-6">
@@ -527,20 +682,7 @@ export default function BidderRegistrationStep1() {
                   >
                     Cancel
                   </Button>
-                  <Button
-                    type="submit"
-                    className="sm:flex-1"
-                    disabled={
-                      isSubmitting ||
-                      !validatePassword(formData.password) ||
-                      !passwordsMatch ||
-                      !formData.companyName.trim() ||
-                      !formData.firstName.trim() ||
-                      !formData.lastName.trim() ||
-                      !formData.position.trim() ||
-                      !formData.email.trim()
-                    }
-                  >
+                  <Button type="submit" className="sm:flex-1" disabled={isSubmitDisabled}>
                     {isSubmitting ? (
                       <span className="flex items-center justify-center">
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -563,4 +705,3 @@ export default function BidderRegistrationStep1() {
     </div>
   );
 }
-

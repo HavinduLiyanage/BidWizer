@@ -9,8 +9,15 @@ import SiteFooter from '@/components/site-footer'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { signOut } from 'next-auth/react'
+import { useEffect } from 'react'
 
 export default function Home() {
+  // Automatically log out user when they visit the homepage
+  useEffect(() => {
+    signOut({ redirect: false })
+  }, [])
+
   return (
     <>
       <SiteHeader />

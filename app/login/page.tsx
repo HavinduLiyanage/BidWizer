@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,14 +21,45 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [successVariant, setSuccessVariant] = useState<"legacy" | "bidder" | "invite" | null>(null);
+  const [isEmailLocked, setIsEmailLocked] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    // Show success message if user just registered
-    if (searchParams.get("registered") === "true") {
-      setShowSuccessMessage(true);
-      setTimeout(() => setShowSuccessMessage(false), 5000);
+    const registeredParam = searchParams.get("registered");
+
+    if (!registeredParam) {
+      setShowSuccessMessage(false);
+      setSuccessVariant(null);
+      return;
     }
+
+    const variant =
+      registeredParam === "bidder"
+        ? "bidder"
+        : registeredParam === "invite"
+          ? "invite"
+          : "legacy";
+
+    setSuccessVariant(variant);
+    setShowSuccessMessage(true);
+
+    const timer = window.setTimeout(() => {
+      setShowSuccessMessage(false);
+      setSuccessVariant(null);
+    }, 6000);
+
+    return () => window.clearTimeout(timer);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const emailParam = searchParams.get("email");
+    const shouldLockEmail = searchParams.get("lockEmail") === "true";
+
+    if (emailParam) {
+      setEmail(emailParam);
+    }
+    setIsEmailLocked(shouldLockEmail);
   }, [searchParams]);
 
   useEffect(() => {
@@ -76,12 +108,38 @@ export default function LoginPage() {
 
     const session = await getSession();
     const organizationType = session?.user?.organizationType;
-    const destination = organizationType === "PUBLISHER" ? "/publisher/dashboard" : "/dashboard";
+    const destination = organizationType === "PUBLISHER" ? "/publisher/dashboard" : "/tenders";
 
     router.push(destination);
     router.refresh();
     setIsSubmitting(false);
   };
+
+  const inviteCountParam = searchParams.get("invites");
+  const inviteCount = inviteCountParam ? Number.parseInt(inviteCountParam, 10) || 0 : 0;
+  const inviteMessage =
+    inviteCount > 0
+      ? inviteCount === 1
+        ? " We also emailed the teammate you invited with steps to join."
+        : ` We also emailed the ${inviteCount} teammates you invited with steps to join.`
+      : "";
+
+  const successCopy = successVariant
+    ? successVariant === "bidder"
+      ? {
+          title: "Registration complete!",
+          body: `We sent a verification email. Verify your account, then use your credentials to sign in.${inviteMessage}`,
+        }
+      : successVariant === "invite"
+        ? {
+            title: "Account created!",
+            body: "Check your inbox to verify your email. You can sign in here once verification is complete.",
+          }
+        : {
+            title: "Registration successful!",
+            body: "You can now sign in to your account.",
+          }
+    : null;
 
   return (
     <>
@@ -133,12 +191,12 @@ export default function LoginPage() {
                   </div>
 
                   {/* Success Message */}
-                  {showSuccessMessage && (
+                  {showSuccessMessage && successCopy && (
                     <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
                       <CheckCircle className="h-5 w-5 text-green-600" />
                       <div>
-                        <p className="text-sm font-medium text-green-800">Registration Successful!</p>
-                        <p className="text-xs text-green-600">You can now sign in to your account.</p>
+                        <p className="text-sm font-medium text-green-800">{successCopy.title}</p>
+                        <p className="text-xs text-green-600">{successCopy.body}</p>
                       </div>
                     </div>
                   )}
@@ -164,11 +222,25 @@ export default function LoginPage() {
                           type="email"
                           placeholder="you@example.com"
                           value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          className="pl-11 h-12 rounded-lg border-gray-200 dark:border-white/10"
+                          onChange={(e) => {
+                            if (!isEmailLocked) {
+                              setEmail(e.target.value);
+                            }
+                          }}
+                          readOnly={isEmailLocked}
+                          aria-readonly={isEmailLocked}
+                          className={cn(
+                            "pl-11 h-12 rounded-lg border-gray-200 dark:border-white/10",
+                            isEmailLocked && "bg-gray-100 dark:bg-gray-900 cursor-not-allowed"
+                          )}
                           required
                         />
                       </div>
+                      {isEmailLocked && (
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          This email comes from your registration flow and cannot be changed.
+                        </p>
+                      )}
                     </div>
 
                     <div>

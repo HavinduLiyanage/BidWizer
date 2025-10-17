@@ -110,7 +110,7 @@ export default function BidderRegistrationStep3() {
     setIsAddingMember(false);
     setErrorMessage(null);
     setSuccessMessage(null);
-    setSuccessMessage(`Added ${trimmedName}. Invites send when you finish setup.`);
+    setSuccessMessage(`Added ${trimmedName}. Invitations will be sent when you finish setup.`);
   };
 
   const handleRemoveMember = (id: string) => {
@@ -147,18 +147,35 @@ export default function BidderRegistrationStep3() {
           team: {
             plan: selectedPlan,
             teamMembers: members.map((member) => ({
-              name: member.name.trim(),
-              email: member.email.trim(),
-              position: member.position.trim(),
+              name: member.name,
+              email: member.email,
+              position: member.position,
             })),
           },
         }),
       });
 
-      const data = await response.json();
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        details?: Array<{ message?: string }>;
+        pendingInvitations?: Array<unknown>;
+      };
 
       if (!response.ok) {
-        setErrorMessage(data.error || "Unable to complete registration. Please try again.");
+        const detailsList = Array.isArray(data?.details) ? data.details : [];
+        const detailsMessage =
+          detailsList.length > 0
+            ? detailsList
+                .map((issue) => issue?.message)
+                .filter(Boolean)
+                .join(" ")
+            : undefined;
+
+        setErrorMessage(
+          detailsMessage ||
+            data?.error ||
+            "Unable to complete registration. Please try again."
+        );
         return;
       }
 
@@ -166,16 +183,18 @@ export default function BidderRegistrationStep3() {
       localStorage.removeItem("bidder_step2");
       localStorage.removeItem("bidder_step1_status");
       localStorage.removeItem("bidder_step1_resume_token");
-      localStorage.setItem(
-        "bidder_registration_summary",
-        JSON.stringify({
-          email: step1Data.email,
-          organizationName: data.organization?.name ?? step1Data.companyName,
-          pendingInvitations: data.pendingInvitations ?? [],
-        }),
-      );
+      localStorage.removeItem("bidder_registration_summary");
 
-      router.push(`/register/bidder/ready?email=${encodeURIComponent(step1Data.email)}`);
+      const loginParams = new URLSearchParams({
+        registered: "bidder",
+        email: step1Data.email,
+        lockEmail: "true",
+      });
+      if ((data.pendingInvitations ?? []).length > 0) {
+        loginParams.set("invites", String((data.pendingInvitations ?? []).length));
+      }
+
+      router.push(`/login?${loginParams.toString()}`);
     } catch (error) {
       console.error("Failed to complete registration:", error);
       setErrorMessage("Unexpected error completing registration. Please try again.");

@@ -7,7 +7,6 @@ import { sendVerificationEmail } from '@/lib/email'
 
 const acceptInvitationSchema = z
   .object({
-    name: z.string().min(2, 'Name must be at least 2 characters'),
     password: z.string().min(8, 'Password must be at least 8 characters'),
     confirmPassword: z.string().min(8, 'Password confirmation must be at least 8 characters'),
   })
@@ -84,7 +83,7 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { name, password } = acceptInvitationSchema.parse(body)
+    const { password } = acceptInvitationSchema.parse(body)
 
     const invitation = await db.invitation.findUnique({
       where: { token },
@@ -128,7 +127,7 @@ export async function POST(
         data: {
           email: invitation.email,
           password: hashedPassword,
-          name,
+          name: invitation.name ?? null,
         },
       })
 

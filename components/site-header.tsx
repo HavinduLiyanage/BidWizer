@@ -3,9 +3,11 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { Menu, X, ChevronDown } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { UserMenu } from './user-menu'
+import { signOut } from 'next-auth/react'
 
 const nav = [
   { label: 'Features', href: '/features' },
@@ -27,14 +29,26 @@ interface SiteHeaderProps {
 
 export default function SiteHeader({ variant = 'homepage' }: SiteHeaderProps) {
   const [open, setOpen] = useState(false)
+  const pathname = usePathname()
+  
+  // Check if we're in registration flow - hide UserMenu during registration
+  const isRegistrationFlow = pathname?.includes('/register/bidder/') && 
+    !pathname?.includes('/ready') // Show UserMenu on ready page (after completion)
+
+  // Handle logo click - logout user and redirect to homepage
+  const handleLogoClick = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    await signOut({ redirect: false })
+    window.location.href = '/'
+  }
 
   if (variant === 'page') {
     return (
       <header className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white">
         <div className="container flex h-16 items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
+          <button onClick={handleLogoClick} className="flex items-center gap-2 cursor-pointer">
             <span className="text-xl font-bold text-navy-900">Logo</span>
-          </Link>
+          </button>
 
           <nav className="hidden md:flex items-center gap-8">
             {nav.map(item => (
@@ -69,11 +83,11 @@ export default function SiteHeader({ variant = 'homepage' }: SiteHeaderProps) {
           </nav>
 
           <div className="hidden md:flex items-center gap-4">
-            <UserMenu />
+            {!isRegistrationFlow && <UserMenu />}
           </div>
 
           <div className="flex md:hidden items-center gap-2">
-            <UserMenu />
+            {!isRegistrationFlow && <UserMenu />}
             <button
               className="text-slate-700"
               onClick={() => setOpen(v => !v)}
@@ -141,9 +155,9 @@ export default function SiteHeader({ variant = 'homepage' }: SiteHeaderProps) {
           >
             <div className="flex items-center justify-between">
               {/* Logo */}
-              <Link href="/" className="flex items-center gap-2">
+              <button onClick={handleLogoClick} className="flex items-center gap-2 cursor-pointer">
                 <span className="text-xl font-bold text-navy-900">Logo</span>
-              </Link>
+              </button>
 
               {/* Desktop Navigation */}
               <nav className="hidden md:flex items-center gap-8">
