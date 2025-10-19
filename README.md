@@ -103,9 +103,22 @@ A comprehensive tender management platform built with Next.js 14, TypeScript, an
    DATABASE_URL=your-database-url-here
    DIRECT_URL=your-direct-database-url-here
    
+   # Supabase storage
+   SUPABASE_URL=your-supabase-project-url
+   SUPABASE_ANON_KEY=your-supabase-anon-key
+   SUPABASE_SERVICE_ROLE=your-supabase-service-role-key
+   SUPABASE_TENDER_UPLOADS_BUCKET=tender-uploads
+
+   # Uploads
+   TENDER_UPLOAD_MAX_SIZE_MB=500
+   
    # Email (Resend)
    RESEND_API_KEY=your-resend-api-key-here
    ```
+
+   `SUPABASE_TENDER_UPLOADS_BUCKET` should point to the storage bucket that will hold tender documents. The upload API will default to `tender-uploads` when this value is omitted.
+
+   `TENDER_UPLOAD_MAX_SIZE_MB` controls the maximum tender document upload size (default `500`). Increase or decrease based on your storage provider limits.
 
 4. **Run the development server**
    ```bash

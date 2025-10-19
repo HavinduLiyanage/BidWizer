@@ -6,11 +6,13 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { FileTree } from "./FileTree";
 import { DocumentViewer } from "./DocumentViewer";
 import { AiAssistantPanel } from "./AiAssistantPanel";
 import { getTenderTree, type FileNode } from "@/lib/mocks/files";
 import { cn } from "@/lib/utils";
+import { FileTree } from "./FileTree";
+import { UploadPanel } from "./UploadPanel";
+import { useUserSession } from "@/lib/hooks/use-session";
 
 interface TenderWorkspaceModalProps {
   tenderId: string;
@@ -28,6 +30,10 @@ export function TenderWorkspaceModal({
   const [isLoading, setIsLoading] = useState(true);
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(false);
   const [isAiPanelCollapsed, setIsAiPanelCollapsed] = useState(false);
+  const { user } = useUserSession();
+  
+  // Check if user is a publisher (only publishers can upload files)
+  const canUpload = user?.organizationType === 'PUBLISHER';
 
   // Load tree data
   useEffect(() => {
@@ -168,11 +174,17 @@ export function TenderWorkspaceModal({
                 </div>
               ) : (
                 <>
-                  <FileTree
-                    tree={tree}
-                    selectedId={selectedNode?.id}
-                    onSelect={handleSelectNode}
-                  />
+                  <div className="flex h-full flex-col">
+                    {canUpload && (
+                      <UploadPanel tenderId={tenderId} onUploadQueued={loadTree} />
+                    )}
+                    <FileTree
+                      tree={tree}
+                      selectedId={selectedNode?.id}
+                      onSelect={handleSelectNode}
+                      className="flex-1"
+                    />
+                  </div>
                   <button
                     onClick={() => setIsFileTreeCollapsed(true)}
                     className="absolute top-3 right-2 p-1.5 hover:bg-gray-100 rounded-md transition-colors opacity-0 group-hover:opacity-100"

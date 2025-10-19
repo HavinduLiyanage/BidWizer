@@ -14,7 +14,7 @@ export interface Tender {
   publisher: Publisher;
   category: string;
   deadline: string;
-  status: "Active" | "Closed" | "Draft";
+  status: "Active" | "Closed" | "Draft" | "Awarded" | "Cancelled";
   description: string;
   publishedDate: string;
   budget?: string;

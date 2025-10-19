@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Eye, Edit, TrendingUp, Trash2, Search, Filter, Calendar, DollarSign, Users } from "lucide-react";
+import { Plus, Eye, Edit, TrendingUp, Trash2, Search, Calendar, DollarSign, Users } from "lucide-react";
 import { motion } from "framer-motion";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
@@ -10,59 +10,140 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { mockTenders } from "@/lib/mock-data";
+
+type TenderStatusCode = "DRAFT" | "PUBLISHED" | "CLOSED" | "AWARDED" | "CANCELLED";
+
+interface PublisherTender {
+  id: string;
+  title: string;
+  category: string;
+  deadline: string | null;
+  status: string;
+  statusCode: TenderStatusCode;
+  description: string;
+  publishedDate: string | null;
+  budget?: string | null;
+}
+
+const STATUS_LABELS: Record<TenderStatusCode, string> = {
+  DRAFT: "Draft",
+  PUBLISHED: "Active",
+  CLOSED: "Closed",
+  AWARDED: "Awarded",
+  CANCELLED: "Cancelled",
+};
+
+const STATUS_FILTER_MAP: Record<string, TenderStatusCode[]> = {
+  active: ["PUBLISHED"],
+  draft: ["DRAFT"],
+  closed: ["CLOSED"],
+  awarded: ["AWARDED"],
+  cancelled: ["CANCELLED"],
+};
+
+function mapTender(tender: any): PublisherTender {
+  const statusCode: TenderStatusCode = (tender.status as TenderStatusCode) ?? "DRAFT";
+  const deadlineValue =
+    tender.deadline ? new Date(tender.deadline).toISOString() : null;
+  const publishedValue =
+    tender.publishedAt ? new Date(tender.publishedAt).toISOString() : null;
+
+  return {
+    id: tender.id,
+    title: tender.title ?? "Untitled tender",
+    category: tender.category ?? "Uncategorized",
+    deadline: deadlineValue,
+    statusCode,
+    status: STATUS_LABELS[statusCode] ?? "Draft",
+    description: tender.description ?? "",
+    publishedDate: publishedValue,
+    budget: tender.estimatedValue ?? null,
+  };
+}
 
 export default function PublisherDashboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  
-  // In real app, filter tenders by current publisher
-  // For demo, we'll add some draft tenders to show the functionality
-  const publisherTenders = [
-    ...mockTenders,
-    {
-      id: "TND-2024-006",
-      title: "School Renovation Project - Phase 1",
-      publisher: mockTenders[0].publisher,
-      category: "Construction",
-      deadline: "2025-01-15",
-      status: "Draft" as const,
-      description: "Renovation of primary school buildings including classrooms, library, and administrative offices.",
-      publishedDate: "2024-12-01",
-      budget: "$500,000 - $750,000",
-      type: "Public" as const,
-      location: "Matara, Sri Lanka"
-    },
-    {
-      id: "TND-2024-007",
-      title: "Digital Transformation Initiative",
-      publisher: mockTenders[0].publisher,
-      category: "IT & Technology",
-      deadline: "2025-02-01",
-      status: "Draft" as const,
-      description: "Implementation of digital systems for government services including website development and mobile app.",
-      publishedDate: "2024-12-05",
-      budget: "$1,200,000",
-      type: "Public" as const,
-      location: "Colombo, Sri Lanka"
+  const [isLoading, setIsLoading] = useState(true);
+  const [publisherTenders, setPublisherTenders] = useState<PublisherTender[]>([]);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchTenders() {
+      setIsLoading(true);
+      setFetchError(null);
+
+      try {
+        const response = await fetch("/api/tenders", {
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body?.error ?? "Failed to load tenders");
+        }
+
+        const payload = await response.json();
+        const tenders = Array.isArray(payload?.tenders)
+          ? payload.tenders.map(mapTender)
+          : [];
+
+        if (isMounted) {
+          setPublisherTenders(tenders);
+        }
+      } catch (error) {
+        console.error("Failed to fetch publisher tenders:", error);
+        if (isMounted) {
+          setFetchError(
+            error instanceof Error ? error.message : "Unable to load tenders"
+          );
+          setPublisherTenders([]);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
-  ];
 
-  // Filter tenders based on search and status
-  const filteredTenders = publisherTenders.filter(tender => {
-    const matchesSearch = tender.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tender.category.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || tender.status.toLowerCase() === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+    fetchTenders();
 
-  // Calculate stats
-  const stats = {
-    total: publisherTenders.length,
-    active: publisherTenders.filter(t => t.status === "Active").length,
-    draft: publisherTenders.filter(t => t.status === "Draft").length,
-    totalViews: publisherTenders.reduce((sum, t) => sum + (Math.floor(Math.random() * 1000) + 100), 0)
-  };
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const filteredTenders = useMemo(() => {
+    return publisherTenders.filter((tender) => {
+      const normalizedQuery = searchQuery.trim().toLowerCase();
+      const matchesSearch =
+        normalizedQuery.length === 0 ||
+        tender.title.toLowerCase().includes(normalizedQuery) ||
+        tender.category.toLowerCase().includes(normalizedQuery);
+
+      if (!matchesSearch) {
+        return false;
+      }
+
+      if (statusFilter === "all") {
+        return true;
+      }
+
+      const statusCodes = STATUS_FILTER_MAP[statusFilter] ?? [];
+      return statusCodes.includes(tender.statusCode);
+    });
+  }, [publisherTenders, searchQuery, statusFilter]);
+
+  const stats = useMemo(() => {
+    const total = publisherTenders.length;
+    const active = publisherTenders.filter((t) => t.statusCode === "PUBLISHED").length;
+    const draft = publisherTenders.filter((t) => t.statusCode === "DRAFT").length;
+    const totalViews = publisherTenders.reduce((sum, _, index) => sum + 120 + index * 15, 0);
+
+    return { total, active, draft, totalViews };
+  }, [publisherTenders]);
 
   return (
     <>
@@ -183,6 +264,8 @@ export default function PublisherDashboardPage() {
                 <option value="active">Active</option>
                 <option value="draft">Draft</option>
                 <option value="closed">Closed</option>
+                <option value="awarded">Awarded</option>
+                <option value="cancelled">Cancelled</option>
               </select>
               <Link href="/publisher/tenders/new">
                 <Button className="h-10">
@@ -201,7 +284,15 @@ export default function PublisherDashboardPage() {
           >
             <Card className="bg-white border-gray-200 shadow-sm">
               <CardContent className="p-0">
-                {filteredTenders.length > 0 ? (
+                {isLoading ? (
+                  <div className="py-16 text-center text-sm text-gray-500">
+                    Loading tenders&hellip;
+                  </div>
+                ) : fetchError ? (
+                  <div className="py-16 text-center text-sm text-red-500">
+                    {fetchError}
+                  </div>
+                ) : filteredTenders.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b border-gray-200">
@@ -256,10 +347,14 @@ export default function PublisherDashboardPage() {
                             <td className="px-6 py-4">
                               <Badge
                                 className={`${
-                                  tender.status === "Active"
+                                  tender.statusCode === "PUBLISHED"
                                     ? "bg-green-50 text-green-700"
-                                    : tender.status === "Draft"
+                                    : tender.statusCode === "DRAFT"
                                     ? "bg-amber-50 text-amber-700"
+                                    : tender.statusCode === "AWARDED"
+                                    ? "bg-blue-50 text-blue-700"
+                                    : tender.statusCode === "CANCELLED"
+                                    ? "bg-rose-50 text-rose-700"
                                     : "bg-gray-50 text-gray-700"
                                 } border-0`}
                               >
@@ -267,18 +362,20 @@ export default function PublisherDashboardPage() {
                               </Badge>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-700">
-                              {tender.status === "Draft" ? (
+                              {tender.statusCode === "DRAFT" ? (
                                 <span className="text-gray-400">Not published</span>
                               ) : (
-                                new Date(tender.publishedDate).toLocaleDateString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })
+                                tender.publishedDate
+                                  ? new Date(tender.publishedDate).toLocaleDateString("en-US", {
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    })
+                                  : <span className="text-gray-400">Not set</span>
                               )}
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-700">
-                              {tender.status === "Draft" ? (
+                              {tender.statusCode === "DRAFT" || !tender.deadline ? (
                                 <span className="text-gray-400">TBD</span>
                               ) : (
                                 new Date(tender.deadline).toLocaleDateString("en-US", {
@@ -289,7 +386,7 @@ export default function PublisherDashboardPage() {
                               )}
                             </td>
                             <td className="px-6 py-4">
-                              {tender.status === "Draft" ? (
+                              {tender.statusCode === "DRAFT" ? (
                                 <span className="text-gray-400 text-sm">No data available</span>
                               ) : (
                                 <div className="space-y-1">
@@ -310,7 +407,7 @@ export default function PublisherDashboardPage() {
                             </td>
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-2">
-                                {tender.status !== "Draft" && (
+                                {tender.statusCode !== "DRAFT" && (
                                   <Link href={`/tenders/${tender.id}`}>
                                     <Button
                                       variant="ghost"
@@ -330,7 +427,7 @@ export default function PublisherDashboardPage() {
                                 >
                                   <Edit className="h-4 w-4" />
                                 </Button>
-                                {tender.status !== "Draft" && (
+                                {tender.statusCode !== "DRAFT" && (
                                   <Link href={`/publisher/tenders/${tender.id}/analytics`}>
                                     <Button
                                       variant="ghost"

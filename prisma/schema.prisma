@@ -1,48 +1,41 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL") // session pooler for the running app
+  url      = env("DATABASE_URL")
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  password      String
-  name          String?
-  image         String?
-  emailVerified DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  // Relations
-  verificationTokens  VerificationToken[]
-  orgMembers          OrgMember[]
-  chatThreads         ChatThread[]
-  subscriptions       Subscription[]
+  id                  String              @id @default(cuid())
+  email               String              @unique
+  password            String
+  name                String?
+  image               String?
+  emailVerified       DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
   aiUsage             AiUsage[]
-  invitationsSent     Invitation[]        @relation("InvitationInviter")
+  chatThreads         ChatThread[]
   invitationsAccepted Invitation[]        @relation("InvitationAccepter")
+  invitationsSent     Invitation[]        @relation("InvitationInviter")
+  orgMembers          OrgMember[]
+  subscriptions       Subscription[]
+  verificationTokens  VerificationToken[]
 
   @@map("users")
 }
 
 model VerificationToken {
   id         String   @id @default(cuid())
-  identifier String // typically email
+  identifier String
   token      String   @unique
-  type       String // 'email-verify' | 'reset-password'
+  type       String
   expires    DateTime
   createdAt  DateTime @default(now())
-
-  // Relations
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([identifier, token])
   @@index([identifier])
@@ -51,42 +44,38 @@ model VerificationToken {
 }
 
 model Organization {
-  id          String           @id @default(cuid())
-  name        String
-  slug        String           @unique
-  description String?
-  logo        String?
-  industry    String?
-  website     String?
-  planTier    String?
-  type        OrganizationType @default(BIDDER)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-
-  // Relations
-  members       OrgMember[]
-  tenders       Tender[]
-  subscriptions Subscription[]
+  id            String           @id @default(cuid())
+  name          String
+  slug          String           @unique
+  description   String?
+  logo          String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  industry      String?
+  planTier      String?
+  type          OrganizationType @default(BIDDER)
+  website       String?
   aiUsages      AiUsage[]
-  plans         Plan[]
   invitations   Invitation[]
+  members       OrgMember[]
+  plans         Plan[]
+  subscriptions Subscription[]
+  tenders       Tender[]
 
   @@map("organizations")
 }
 
 model OrgMember {
-  id        String        @id @default(cuid())
-  role      OrgMemberRole @default(MEMBER)
-  joinedAt  DateTime      @default(now())
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  position  String?
-
-  // Relations
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String        @id @default(cuid())
+  role           OrgMemberRole @default(MEMBER)
+  joinedAt       DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   userId         String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   organizationId String
+  position       String?
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId])
   @@index([organizationId])
@@ -109,10 +98,9 @@ model Invitation {
   acceptedAt     DateTime?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
-
-  invitedBy    User         @relation("InvitationInviter", fields: [invitedById], references: [id], onDelete: Cascade)
-  acceptedBy   User?        @relation("InvitationAccepter", fields: [acceptedById], references: [id])
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  acceptedBy     User?            @relation("InvitationAccepter", fields: [acceptedById], references: [id])
+  invitedBy      User             @relation("InvitationInviter", fields: [invitedById], references: [id], onDelete: Cascade)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([status])
@@ -121,23 +109,30 @@ model Invitation {
 }
 
 model Tender {
-  id          String       @id @default(cuid())
-  title       String
-  description String?
-  reference   String?      @unique
-  status      TenderStatus @default(DRAFT)
-  publishedAt DateTime?
-  deadline    DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  // Relations
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  organizationId String
-  uploads        Upload[]
-  extractedFiles ExtractedFile[]
-  chunks         Chunk[]
-  chatThreads    ChatThread[]
+  id                String          @id @default(cuid())
+  title             String
+  description       String?
+  reference         String?         @unique
+  status            TenderStatus    @default(DRAFT)
+  publishedAt       DateTime?
+  deadline          DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  organizationId    String
+  category          String?
+  estimatedValue    String?
+  regionLocation    String?
+  contactPersonName String?
+  contactNumber     String?
+  contactEmail      String?
+  companyWebsite    String?
+  requirements      Json?
+  preBidMeetingAt   DateTime?
+  chatThreads       ChatThread[]
+  chunks            Chunk[]
+  extractedFiles    ExtractedFile[]
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploads           Upload[]
 
   @@index([organizationId])
   @@index([status])
@@ -146,24 +141,22 @@ model Tender {
 }
 
 model Upload {
-  id           String       @id @default(cuid())
-  filename     String
-  originalName String
-  kind         UploadKind
-  status       UploadStatus @default(PENDING)
-  size         Int
-  mimeType     String?
-  url          String? // keep if you like, but:
-  storageKey   String? // add this to store object path (e.g. tenders/{org}/{tender}/...)
-  orgId        String? // speeds up "does user belong to org?" checks
-  error        String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-
-  // Relations
-  tender         Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  id             String          @id @default(cuid())
+  filename       String
+  originalName   String
+  kind           UploadKind
+  status         UploadStatus    @default(PENDING)
+  size           Int
+  mimeType       String?
+  url            String?
+  storageKey     String?
+  orgId          String?
+  error          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   tenderId       String
   extractedFiles ExtractedFile[]
+  tender         Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
 
   @@index([tenderId])
   @@index([status])
@@ -175,53 +168,47 @@ model ExtractedFile {
   id        String   @id @default(cuid())
   filename  String
   page      Int?
-  content   String?  @db.Text
+  content   String?
   metadata  Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  // Relations
-  tender   Tender  @relation(fields: [tenderId], references: [id], onDelete: Cascade)
-  tenderId String
-  upload   Upload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-  uploadId String
-  chunks   Chunk[]
+  tenderId  String
+  uploadId  String
+  chunks    Chunk[]
+  tender    Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  upload    Upload   @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 
   @@index([tenderId, uploadId, page])
   @@map("extracted_files")
 }
 
 model Chunk {
-  id        String   @id @default(cuid())
-  content   String   @db.VarChar(1500)
-  embedding Json?
-  page      Int?
-  metadata  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  tender          Tender        @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  content         String        @db.VarChar(1500)
+  embedding       Json?
+  page            Int?
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
   tenderId        String
-  extractedFile   ExtractedFile @relation(fields: [extractedFileId], references: [id], onDelete: Cascade)
   extractedFileId String
+  extractedFile   ExtractedFile @relation(fields: [extractedFileId], references: [id], onDelete: Cascade)
+  tender          Tender        @relation(fields: [tenderId], references: [id], onDelete: Cascade)
 
   @@index([tenderId, extractedFileId, page])
   @@map("chunks")
 }
 
 model ChatThread {
-  id        String   @id @default(cuid())
+  id        String        @id @default(cuid())
   title     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId   String
-  tender   Tender        @relation(fields: [tenderId], references: [id], onDelete: Cascade)
-  tenderId String
-  messages ChatMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  userId    String
+  tenderId  String
+  messages  ChatMessage[]
+  tender    Tender        @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([tenderId])
@@ -231,14 +218,12 @@ model ChatThread {
 model ChatMessage {
   id        String          @id @default(cuid())
   role      ChatMessageRole
-  content   String          @db.Text
+  content   String
   metadata  Json?
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
-
-  // Relations
-  thread   ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  threadId String
+  threadId  String
+  thread    ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
   @@index([threadId])
   @@index([createdAt])
@@ -246,40 +231,36 @@ model ChatMessage {
 }
 
 model AiUsage {
-  id           String   @id @default(cuid())
+  id           String       @id @default(cuid())
   model        String
   inputTokens  Int
   outputTokens Int
-  cost         Decimal  @db.Decimal(10, 6)
-  month        DateTime // truncate to first day of month for rollups
-  createdAt    DateTime @default(now())
-
-  // Relations
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cost         Decimal      @db.Decimal(10, 6)
+  month        DateTime
+  createdAt    DateTime     @default(now())
   userId       String
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([orgId, userId, month, model]) // prevents duplicate rows per bucket/model/user
+  @@unique([orgId, userId, month, model])
   @@index([userId])
   @@index([createdAt])
   @@map("ai_usage")
 }
 
 model Plan {
-  id          String       @id @default(cuid())
-  name        String
-  description String?
-  price       Decimal      @db.Decimal(10, 2)
-  interval    PlanInterval
-  features    Json?
-  isActive    Boolean      @default(true)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  // Relations
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id             String         @id @default(cuid())
+  name           String
+  description    String?
+  price          Decimal        @db.Decimal(10, 2)
+  interval       PlanInterval
+  features       Json?
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
   organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   subscriptions  Subscription[]
 
   @@unique([organizationId, name])
@@ -297,14 +278,12 @@ model Subscription {
   canceledAt         DateTime?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
-
-  // Relations
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId         String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  organizationId String
-  plan           Plan         @relation(fields: [planId], references: [id], onDelete: Restrict)
-  planId         String
+  userId             String
+  organizationId     String
+  planId             String
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan               Plan               @relation(fields: [planId], references: [id])
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([organizationId])
@@ -313,7 +292,6 @@ model Subscription {
   @@map("subscriptions")
 }
 
-// Enums
 enum OrgMemberRole {
   ADMIN
   MEMBER
