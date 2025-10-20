@@ -13,6 +13,7 @@ import { readEnvVar } from '@/lib/env'
 const MOCK_STORAGE_PREFIX = 'mock://'
 const DEFAULT_BUCKET_NAME = 'tender-uploads'
 const MAX_ZIP_ENTRIES = 2000
+const DEFAULT_STORED_FILENAME = 'original.bin'
 
 function getSupabaseBucketName(): string {
   return (
@@ -22,7 +23,7 @@ function getSupabaseBucketName(): string {
   )
 }
 
-function resolveMockStoragePath(storageKey: string): string {
+function parseMockStorageKey(storageKey: string): { uploadId: string; filename: string } {
   const withoutPrefix = storageKey.slice(MOCK_STORAGE_PREFIX.length)
   const [uploadId, ...rest] = withoutPrefix.split('/')
 
@@ -30,17 +31,51 @@ function resolveMockStoragePath(storageKey: string): string {
     throw new Error(`Invalid mock storage key: ${storageKey}`)
   }
 
-  const filename = rest.join('/') || 'original.bin'
+  const filename = rest.join('/') || DEFAULT_STORED_FILENAME
+  return { uploadId, filename }
+}
+
+async function resolveMockStoragePath(storageKey: string): Promise<string> {
+  const { uploadId, filename } = parseMockStorageKey(storageKey)
   return join(process.cwd(), '.uploads', uploadId, filename)
 }
 
-async function loadUploadBuffer(storageKey: string | null): Promise<Buffer> {
+export async function resolveUploadDownloadUrl(params: {
+  id: string
+  storageKey: string | null | undefined
+  url?: string | null | undefined
+  filename?: string | null | undefined
+  originalName?: string | null | undefined
+}): Promise<string | null> {
+  if (params.url) {
+    return params.url
+  }
+
+  const storageKey = params.storageKey
+  if (!storageKey) {
+    return null
+  }
+
+  if (storageKey.startsWith(MOCK_STORAGE_PREFIX)) {
+    const { uploadId, filename } = parseMockStorageKey(storageKey)
+    const effectiveFilename =
+      filename || params.filename || params.originalName || DEFAULT_STORED_FILENAME
+    const effectiveUploadId = uploadId || params.id
+    return `/api/uploads/mock-storage/${effectiveUploadId}?filename=${encodeURIComponent(
+      effectiveFilename,
+    )}`
+  }
+
+  return null
+}
+
+export async function loadUploadBuffer(storageKey: string | null): Promise<Buffer> {
   if (!storageKey) {
     throw new Error('Upload is missing storageKey')
   }
 
   if (storageKey.startsWith(MOCK_STORAGE_PREFIX)) {
-    const filePath = resolveMockStoragePath(storageKey)
+    const filePath = await resolveMockStoragePath(storageKey)
     return readFile(filePath)
   }
 
@@ -77,6 +112,8 @@ export async function triggerUploadIngestion(uploadId: string): Promise<void> {
       size: true,
       mimeType: true,
       originalName: true,
+      filename: true,
+      url: true,
       tenderId: true,
     },
   })
@@ -88,6 +125,13 @@ export async function triggerUploadIngestion(uploadId: string): Promise<void> {
 
   try {
     const payload = await loadUploadBuffer(upload.storageKey ?? null)
+    const downloadUrl = await resolveUploadDownloadUrl({
+      id: upload.id,
+      storageKey: upload.storageKey,
+      url: upload.url,
+      filename: upload.filename,
+      originalName: upload.originalName,
+    })
 
     await db.$transaction(async (tx) => {
       await tx.extractedFile.deleteMany({
@@ -146,6 +190,7 @@ export async function triggerUploadIngestion(uploadId: string): Promise<void> {
         data: {
           status: UploadStatus.COMPLETED,
           error: null,
+          url: downloadUrl,
         },
       })
     })

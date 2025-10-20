@@ -127,7 +127,7 @@ export default function ContactPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.1 }}
             >
-              We're here to help you succeed. Reach out to our support team for any questions or assistance.
+              We&apos;re here to help you succeed. Reach out to our support team for any questions or assistance.
             </motion.p>
           </div>
         </section>
@@ -190,7 +190,7 @@ export default function ContactPage() {
                 >
                   <h2 className="text-3xl font-bold text-navy-900 mb-6">Send us a Message</h2>
                   <p className="text-slate-600 mb-8">
-                    Fill out the form below and we'll get back to you as soon as possible. 
+                    Fill out the form below and we&apos;ll get back to you as soon as possible. 
                     For urgent issues, please call us directly.
                   </p>
 
@@ -324,7 +324,7 @@ export default function ContactPage() {
                         animate={{ opacity: 1, y: 0 }}
                       >
                         <CheckCircle className="h-5 w-5" />
-                        <span className="font-medium">Message sent successfully! We'll get back to you soon.</span>
+                        <span className="font-medium">Message sent successfully! We&apos;ll get back to you soon.</span>
                       </motion.div>
                     )}
 
@@ -384,11 +384,11 @@ export default function ContactPage() {
                       </li>
                       <li className="flex items-start gap-2">
                         <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                        <span>Steps you've already tried to resolve the issue</span>
+                        <span>Steps you&apos;ve already tried to resolve the issue</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                        <span>Browser and device information if it's a technical issue</span>
+                        <span>Browser and device information if it&apos;s a technical issue</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />

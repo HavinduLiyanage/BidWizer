@@ -102,7 +102,7 @@ export default function NotificationsPage() {
                     Team activity
                   </Label>
                   <p className="text-sm text-gray-600 mt-1">
-                    Stay updated on your team members' activities
+                    Stay updated on your team members&apos; activities
                   </p>
                 </div>
               </div>

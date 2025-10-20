@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import Image from "next/image";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ type Attachment = {
   url: string | null;
   mimeType: string | null;
   size: number | null | undefined;
+  isAdvertisement: boolean;
 };
 
 type TenderDetail = {
@@ -139,6 +141,24 @@ function formatFileSize(size: number | null | undefined): string {
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
+function isImageAttachment(attachment: Attachment): boolean {
+  const mime = attachment.mimeType?.toLowerCase() ?? "";
+  if (mime.startsWith("image/")) {
+    return true;
+  }
+  const normalizedName = attachment.name ? attachment.name.toLowerCase() : "";
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(normalizedName);
+}
+
+function isZipAttachment(attachment: Attachment): boolean {
+  const mime = attachment.mimeType?.toLowerCase() ?? "";
+  if (mime.includes("zip")) {
+    return true;
+  }
+  const normalizedName = attachment.name ? attachment.name.toLowerCase() : "";
+  return /\.zip$/.test(normalizedName);
+}
+
 export default function TenderDetailPage() {
   const params = useParams();
   const tenderId = params.id as string;
@@ -178,6 +198,7 @@ export default function TenderDetailPage() {
                 url: typeof item.url === "string" ? item.url : null,
                 mimeType: typeof item.mimeType === "string" ? item.mimeType : null,
                 size: typeof item.size === "number" ? item.size : null,
+                isAdvertisement: Boolean(item.isAdvertisement),
               }))
             : [];
 
@@ -244,6 +265,48 @@ export default function TenderDetailPage() {
   const timeLeft = tender ? computeTimeLeft(tender.deadline) : "";
 
   const requirementList = tender?.requirements ?? [];
+  const advertisementImage = useMemo(() => {
+    if (!tender) {
+      return null;
+    }
+    const primary = tender.attachments.find(
+      (attachment) =>
+        attachment.isAdvertisement && Boolean(attachment.url) && isImageAttachment(attachment)
+    );
+
+    if (primary) {
+      return primary;
+    }
+
+    return tender.attachments.find(
+      (attachment) => Boolean(attachment.url) && isImageAttachment(attachment)
+    ) ?? null;
+  }, [tender]);
+
+  const downloadableAttachments = useMemo(() => {
+    if (!tender) {
+      return [];
+    }
+    return tender.attachments.filter(
+      (attachment) =>
+        !attachment.isAdvertisement &&
+        !isImageAttachment(attachment)
+    );
+  }, [tender]);
+
+  const preBidMeetingTime = useMemo(() => {
+    if (!tender?.preBidMeetingAt) {
+      return null;
+    }
+    const meetingDate = new Date(tender.preBidMeetingAt);
+    if (Number.isNaN(meetingDate.getTime())) {
+      return null;
+    }
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "numeric",
+    }).format(meetingDate);
+  }, [tender?.preBidMeetingAt]);
 
   const renderContent = () => {
     if (isLoading) {
@@ -262,17 +325,18 @@ export default function TenderDetailPage() {
             <p className="text-sm text-gray-600">
               {error ?? "The tender you are looking for could not be found."}
             </p>
-          </div>
         </div>
-      );
+      </div>
+    );
     }
 
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Main Details */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Title & Status */}
-          <motion.div
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column - Main Details */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Title & Status */}
+            <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm"
@@ -305,6 +369,7 @@ export default function TenderDetailPage() {
           </motion.div>
 
           {/* Project Overview */}
+          {false && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -340,6 +405,43 @@ export default function TenderDetailPage() {
               )}
             </div>
           </motion.div>
+          )}
+
+          {/* Project Advertisement */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Eye className="h-4 w-4 text-primary" />
+              <h2 className="text-lg font-semibold text-gray-900">Project Advertisement</h2>
+            </div>
+            {advertisementImage && advertisementImage.url ? (
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-full max-w-xl">
+                  <div className="relative w-full overflow-hidden rounded-lg border border-gray-200 bg-white">
+                    <Image
+                      src={advertisementImage.url}
+                      alt={`${tender.title} advertisement`}
+                      width={800}
+                      height={1100}
+                      className="h-auto w-full object-contain"
+                      priority
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 text-center">
+                  Uploaded by the publisher for this tender opportunity.
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-600">
+                The publisher has not provided an advertisement image for this tender.
+              </p>
+            )}
+          </motion.div>
 
           {/* Requirements */}
           {requirementList.length > 0 && (
@@ -355,8 +457,8 @@ export default function TenderDetailPage() {
               </div>
               <ul className="space-y-3 text-sm text-gray-700">
                 {requirementList.map((requirement) => (
-                  <li key={requirement} className="flex gap-3">
-                    <span className="text-primary mt-1">•</span>
+                  <li key={requirement} className="flex items-start gap-3">
+                    <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
                     <span>{requirement}</span>
                   </li>
                 ))}
@@ -365,7 +467,7 @@ export default function TenderDetailPage() {
           )}
 
           {/* Attachments */}
-          {tender.attachments.length > 0 && (
+          {downloadableAttachments.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -377,7 +479,7 @@ export default function TenderDetailPage() {
                 <h2 className="text-lg font-semibold text-gray-900">Attachments</h2>
               </div>
               <ul className="space-y-3">
-                {tender.attachments.map((attachment) => (
+                {downloadableAttachments.map((attachment) => (
                   <li
                     key={attachment.id}
                     className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-4 py-3 text-sm text-gray-700"
@@ -390,7 +492,7 @@ export default function TenderDetailPage() {
                       {attachment.size ? (
                         <span className="text-xs text-gray-500">{formatFileSize(attachment.size)}</span>
                       ) : null}
-                      {attachment.url ? (
+                      {attachment.url && !isZipAttachment(attachment) ? (
                         <Link
                           href={attachment.url}
                           target="_blank"
@@ -417,15 +519,32 @@ export default function TenderDetailPage() {
             transition={{ delay: 0.1 }}
             className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm"
           >
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Submission Deadline</h3>
-            <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
-              <Calendar className="h-5 w-5 text-amber-600" />
-              <div>
-                <p className="text-sm font-semibold text-gray-900">
-                  {formatDate(tender.deadline, { weekday: "long" })}
-                </p>
-                <p className="text-xs text-amber-600">{timeLeft}</p>
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Project Timeline</h3>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                <Calendar className="h-5 w-5 text-amber-600" />
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Submission deadline</p>
+                  <p className="text-xs text-gray-600">
+                    {formatDate(tender.deadline, { weekday: "long" })}
+                  </p>
+                  <p className="text-xs text-amber-600">{timeLeft}</p>
+                </div>
               </div>
+              {tender.preBidMeetingAt && (
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">Pre-bid meeting</p>
+                    <p className="text-xs text-gray-600">
+                      {formatDate(tender.preBidMeetingAt, { weekday: "long" })}
+                    </p>
+                    {preBidMeetingTime && (
+                      <p className="text-xs text-blue-600">{preBidMeetingTime}</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
 
@@ -515,6 +634,7 @@ export default function TenderDetailPage() {
             </Button>
           </motion.div>
         </div>
+      </div>
       </div>
     );
   };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Mail, CheckCircle, AlertCircle, RefreshCw, ArrowRight } from "lucide-react";
@@ -20,26 +20,7 @@ export default function VerifyEmailPage() {
   const [verificationStatus, setVerificationStatus] = useState<'pending' | 'success' | 'error'>('pending');
   const [verificationMessage, setVerificationMessage] = useState<string>("");
 
-  useEffect(() => {
-    const emailParam = searchParams.get("email");
-    const inviteParam = searchParams.get("invite");
-    const tokenParam = searchParams.get("token");
-    
-    if (emailParam) {
-      setEmail(emailParam);
-    }
-    
-    if (inviteParam === "true") {
-      setIsInvite(true);
-    }
-
-    // If token is present, verify the email immediately
-    if (tokenParam) {
-      handleTokenVerification(tokenParam);
-    }
-  }, [searchParams]);
-
-  const handleTokenVerification = async (token: string) => {
+  const handleTokenVerification = useCallback(async (token: string) => {
     try {
       const response = await fetch('/api/auth/verify', {
         method: 'POST',
@@ -67,7 +48,26 @@ export default function VerifyEmailPage() {
       setVerificationStatus('error');
       setVerificationMessage('Failed to verify email. Please try again.');
     }
-  };
+  }, [router]);
+
+  useEffect(() => {
+    const emailParam = searchParams.get("email");
+    const inviteParam = searchParams.get("invite");
+    const tokenParam = searchParams.get("token");
+    
+    if (emailParam) {
+      setEmail(emailParam);
+    }
+    
+    if (inviteParam === "true") {
+      setIsInvite(true);
+    }
+
+    // If token is present, verify the email immediately
+    if (tokenParam) {
+      handleTokenVerification(tokenParam);
+    }
+  }, [searchParams, handleTokenVerification]);
 
   useEffect(() => {
     if (countdown > 0) {
@@ -149,21 +149,26 @@ export default function VerifyEmailPage() {
                     ? verificationMessage
                     : verificationStatus === 'error'
                     ? verificationMessage
-                    : `We've sent a verification link to ${email ? `"${email}"` : 'your email address'}`
+                    : (
+                        <>
+                          We&apos;ve sent a verification link to{" "}
+                          {email ? <span>&quot;{email}&quot;</span> : "your email address"}
+                        </>
+                      )
                   }
                 </p>
 
                 {isInvite && (
                   <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
                     <p className="text-sm text-blue-800 dark:text-blue-200">
-                      <strong>Welcome to the team!</strong> After verifying your email, you'll be able to access your company's BidWizer workspace.
+                      <strong>Welcome to the team!</strong> After verifying your email, you&apos;ll be able to access your company&apos;s BidWizer workspace.
                     </p>
                   </div>
                 )}
 
                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 mb-8">
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
-                    What's next?
+                    What&apos;s next?
                   </h3>
                   <div className="space-y-3 text-left">
                     <div className="flex items-start gap-3">
@@ -197,7 +202,7 @@ export default function VerifyEmailPage() {
                 {verificationStatus === 'pending' && (
                   <div className="space-y-4">
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Didn't receive the email?
+                      Didn&apos;t receive the email?
                     </p>
                     
                     <Button

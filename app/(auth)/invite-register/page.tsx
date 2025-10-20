@@ -227,7 +227,7 @@ export default function InviteRegisterPage() {
                     </div>
                     <div>
                       <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
-                        You're Invited!
+                        You&apos;re Invited!
                       </h2>
                       <p className="text-blue-600 dark:text-blue-400 font-medium">
                         Join {inviteData?.organizationName}

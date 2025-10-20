@@ -186,7 +186,7 @@ export default async function DashboardPage() {
                           <tr key={tender.id} className="hover:bg-gray-50">
                             <td className="px-6 py-4">
                               <Link
-                                href={`/tenders/${tender.id}`}
+                                href={`/tenders/${tender.id}/workspace`}
                                 className="font-medium text-gray-900 hover:text-primary"
                               >
                                 {tender.title}
@@ -214,7 +214,7 @@ export default async function DashboardPage() {
                               </Badge>
                             </td>
                             <td className="px-6 py-4">
-                              <Link href={`/tenders/${tender.id}`}>
+                              <Link href={`/tenders/${tender.id}/workspace`}>
                                 <Button variant="outline" size="sm">
                                   View
                                 </Button>

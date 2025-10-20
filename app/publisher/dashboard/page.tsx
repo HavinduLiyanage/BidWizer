@@ -178,9 +178,9 @@ export default function PublisherDashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, duration: 0.5 }}
           >
-            <Card className="bg-white border-gray-200 shadow-sm">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
+            <Card className="bg-white border-gray-200 shadow-sm h-24">
+              <CardContent className="p-6 h-full flex items-center">
+                <div className="flex items-center justify-between w-full">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Total Tenders</p>
                     <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
@@ -192,9 +192,9 @@ export default function PublisherDashboardPage() {
               </CardContent>
             </Card>
 
-            <Card className="bg-white border-gray-200 shadow-sm">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
+            <Card className="bg-white border-gray-200 shadow-sm h-24">
+              <CardContent className="p-6 h-full flex items-center">
+                <div className="flex items-center justify-between w-full">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Active Tenders</p>
                     <p className="text-2xl font-bold text-green-600">{stats.active}</p>
@@ -206,9 +206,9 @@ export default function PublisherDashboardPage() {
               </CardContent>
             </Card>
 
-            <Card className="bg-white border-gray-200 shadow-sm">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
+            <Card className="bg-white border-gray-200 shadow-sm h-24">
+              <CardContent className="p-6 h-full flex items-center">
+                <div className="flex items-center justify-between w-full">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Draft Tenders</p>
                     <p className="text-2xl font-bold text-amber-600">{stats.draft}</p>
@@ -220,9 +220,9 @@ export default function PublisherDashboardPage() {
               </CardContent>
             </Card>
 
-            <Card className="bg-white border-gray-200 shadow-sm">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
+            <Card className="bg-white border-gray-200 shadow-sm h-24">
+              <CardContent className="p-6 h-full flex items-center">
+                <div className="flex items-center justify-between w-full">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Total Views</p>
                     <p className="text-2xl font-bold text-purple-600">{stats.totalViews.toLocaleString()}</p>

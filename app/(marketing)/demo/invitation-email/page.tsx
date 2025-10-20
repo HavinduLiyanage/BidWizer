@@ -22,7 +22,7 @@ export default function InvitationEmailDemoPage() {
                 Invitation Email Preview
               </h1>
               <p className="text-gray-600">
-                This is what team members receive when they're invited to join a workspace
+                This is what team members receive when they&apos;re invited to join a workspace
               </p>
             </div>
             

@@ -238,8 +238,8 @@ export default function BidderRegistrationStep3() {
                     <span className="font-semibold text-green-900">Invitation Process</span>
                   </div>
                   <p className="text-sm text-green-700">
-                    When you add a team member, they'll receive an email invitation with a link to register. 
-                    After they complete registration and verify their email, they'll be able to access your workspace.
+                    When you add a team member, they&apos;ll receive an email invitation with a link to register. 
+                    After they complete registration and verify their email, they&apos;ll be able to access your workspace.
                   </p>
                 </div>
                 
@@ -411,7 +411,7 @@ export default function BidderRegistrationStep3() {
                     <span className="font-semibold text-yellow-900">All seats are used</span>
                   </div>
                   <p className="text-sm text-yellow-700 mt-1">
-                    You've reached the maximum number of team members for your current plan. 
+                    You&apos;ve reached the maximum number of team members for your current plan. 
                     Upgrade your plan to add more team members.
                   </p>
                 </div>

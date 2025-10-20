@@ -1,112 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import { X, Building2, MapPin, Calendar, DollarSign, Clock, Phone, Mail, Folder, FileText, ChevronRight, ChevronDown } from "lucide-react";
+import { useEffect, useState } from "react";
+import { X, Building2, MapPin, Calendar, DollarSign, Phone, Mail, Folder, FileText, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { Tender } from "@/lib/mock-data";
+import type { TenderDocumentNode } from "@/types/tender-documents";
 
 interface TenderPreviewModalProps {
   tender: Tender | null;
   isOpen: boolean;
   onClose: () => void;
 }
-
-interface DocumentNode {
-  id: string;
-  name: string;
-  type: "folder" | "file";
-  size?: string;
-  children?: DocumentNode[];
-}
-
-// Mock document structure for the preview
-const mockDocumentStructure: DocumentNode[] = [
-  {
-    id: "main-docs",
-    name: "Main Documents",
-    type: "folder",
-    children: [
-      {
-        id: "tender-doc",
-        name: "Tender Document.pdf",
-        type: "file",
-        size: "4.6 MB"
-      },
-      {
-        id: "tech-specs",
-        name: "Technical Specifications.pdf",
-        type: "file",
-        size: "4.2 MB"
-      },
-      {
-        id: "terms",
-        name: "Terms & Conditions.pdf",
-        type: "file",
-        size: "5.9 MB"
-      }
-    ]
-  },
-  {
-    id: "drawings",
-    name: "Technical Drawings",
-    type: "folder",
-    children: [
-      {
-        id: "architectural",
-        name: "Architectural",
-        type: "folder",
-        children: [
-          {
-            id: "floor-plans",
-            name: "Floor Plans.pdf",
-            type: "file",
-            size: "2.1 MB"
-          },
-          {
-            id: "elevations",
-            name: "Elevations.pdf",
-            type: "file",
-            size: "1.8 MB"
-          }
-        ]
-      },
-      {
-        id: "structural",
-        name: "Structural",
-        type: "folder",
-        children: [
-          {
-            id: "foundation",
-            name: "Foundation Plans.pdf",
-            type: "file",
-            size: "1.5 MB"
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: "specifications",
-    name: "Specifications",
-    type: "folder",
-    children: [
-      {
-        id: "material-specs",
-        name: "Material Specifications.docx",
-        type: "file",
-        size: "456 KB"
-      },
-      {
-        id: "quality-standards",
-        name: "Quality Standards.pdf",
-        type: "file",
-        size: "1.2 MB"
-      }
-    ]
-  }
-];
 
 const categoryColors: Record<string, { bg: string; text: string }> = {
   "Construction": { bg: "bg-blue-50", text: "text-blue-700" },
@@ -117,12 +23,12 @@ const categoryColors: Record<string, { bg: string; text: string }> = {
 };
 
 // Document Tree Component
-function DocumentTree({ nodes, expanded, onToggle }: { 
-  nodes: DocumentNode[], 
-  expanded: Set<string>, 
+function DocumentTree({ nodes, expanded, onToggle }: {
+  nodes: TenderDocumentNode[],
+  expanded: Set<string>,
   onToggle: (id: string) => void 
 }) {
-  const renderNode = (node: DocumentNode, depth: number = 0) => {
+  const renderNode = (node: TenderDocumentNode, depth: number = 0) => {
     const isExpanded = expanded.has(node.id);
     const hasChildren = node.children && node.children.length > 0;
 
@@ -169,8 +75,119 @@ function DocumentTree({ nodes, expanded, onToggle }: {
   return <div className="space-y-1">{nodes.map((node) => renderNode(node))}</div>;
 }
 
+function isTenderDocumentNode(value: unknown): value is TenderDocumentNode {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const node = value as Record<string, unknown>;
+  if (
+    typeof node.id !== "string" ||
+    typeof node.name !== "string" ||
+    (node.type !== "file" && node.type !== "folder") ||
+    typeof node.path !== "string"
+  ) {
+    return false;
+  }
+
+  if (node.children === undefined) {
+    return true;
+  }
+
+  if (!Array.isArray(node.children)) {
+    return false;
+  }
+
+  return (node.children as unknown[]).every(isTenderDocumentNode);
+}
+
 export function TenderPreviewModal({ tender, isOpen, onClose }: TenderPreviewModalProps) {
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["main-docs"]));
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [documentTree, setDocumentTree] = useState<TenderDocumentNode | null>(null);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  const [documentsError, setDocumentsError] = useState<string | null>(null);
+  const tenderId = tender?.id ?? null;
+
+  useEffect(() => {
+    if (!tenderId || !isOpen) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    async function loadDocuments() {
+      setIsLoadingDocuments(true);
+      setDocumentsError(null);
+      setDocumentTree(null);
+      setExpandedFolders(new Set());
+
+      try {
+        const response = await fetch(`/api/public/tenders/${tenderId}/documents`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => ({}));
+          throw new Error(errorBody?.error ?? "Failed to load documents");
+        }
+
+        let payload: unknown = null;
+        try {
+          payload = await response.json();
+        } catch {
+          payload = null;
+        }
+        if (cancelled) {
+          return;
+        }
+
+        const tree =
+          payload && typeof payload === "object"
+            ? (payload as Record<string, unknown>).tree
+            : undefined;
+        if (isTenderDocumentNode(tree)) {
+          setDocumentTree(tree);
+
+          const topLevelFolders =
+            tree.children
+              ?.filter(
+                (node) =>
+                  node.type === "folder" &&
+                  Array.isArray(node.children) &&
+                  node.children.length > 0
+              )
+              ?.map((folder) => folder.id) ?? [];
+          setExpandedFolders(new Set(topLevelFolders));
+        } else {
+          setDocumentTree(null);
+        }
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        console.error("Failed to load tender documents:", error);
+        if (!cancelled) {
+          setDocumentsError(
+            error instanceof Error ? error.message : "Failed to load documents"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingDocuments(false);
+        }
+      }
+    }
+
+    loadDocuments();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [tenderId, isOpen]);
 
   if (!tender) return null;
 
@@ -292,14 +309,27 @@ export function TenderPreviewModal({ tender, isOpen, onClose }: TenderPreviewMod
               <div>
                 <h4 className="font-semibold text-gray-900 mb-3">Documents</h4>
                 <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                  <DocumentTree 
-                    nodes={mockDocumentStructure}
-                    expanded={expandedFolders}
-                    onToggle={toggleFolder}
-                  />
+                  {isLoadingDocuments ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                      <span>Loading documents...</span>
+                    </div>
+                  ) : documentsError ? (
+                    <p className="text-sm text-red-600">{documentsError}</p>
+                  ) : documentTree?.children && documentTree.children.length > 0 ? (
+                    <DocumentTree
+                      nodes={documentTree.children}
+                      expanded={expandedFolders}
+                      onToggle={toggleFolder}
+                    />
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      No documents have been uploaded for this tender yet.
+                    </p>
+                  )}
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
-                  Click "View Full Details" to access and download documents
+                  Click &ldquo;View Full Details&rdquo; to access and download documents
                 </p>
               </div>
 

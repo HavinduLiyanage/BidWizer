@@ -73,7 +73,9 @@ export default function CreateTenderPage() {
   const [requirements, setRequirements] = useState<string[]>([]);
   const [newRequirement, setNewRequirement] = useState("");
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [advertisementImage, setAdvertisementImage] = useState<File | null>(null);
+  const [advertisementImageName, setAdvertisementImageName] = useState<string | null>(null);
+  const [advertisementUploadStatus, setAdvertisementUploadStatus] = useState<UploadStatusValue | null>(null);
+  const [advertisementUploadError, setAdvertisementUploadError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
   const validateForm = useCallback(() => {
@@ -193,96 +195,117 @@ export default function CreateTenderPage() {
     return response.statusText || "Request failed";
   }, []);
 
-  const uploadFile = useCallback(async (file: File, tenderIdValue: string) => {
-    const fileId = Math.random().toString(36).substr(2, 9);
+  const uploadFile = useCallback(
+    async (
+      file: File,
+      tenderIdValue: string,
+      options?: { isAdvertisement?: boolean; suppressState?: boolean }
+    ): Promise<{ uploadId: string; storageKey: string } | undefined> => {
+      const { isAdvertisement = false, suppressState = false } = options ?? {};
+      const fileId = Math.random().toString(36).substr(2, 9);
 
-    // Add file to state
-    const uploadedFile: UploadedFile = {
-      id: fileId,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      status: "PENDING",
-    };
-    
-    setUploadedFiles(prev => [...prev, uploadedFile]);
-
-    try {
-      // Get signed URL
-      const signedUrlResponse = await fetch('/api/uploads/signed-url', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenderId: tenderIdValue,
-          filename: file.name,
-          mime: file.type || 'application/octet-stream',
+      if (!suppressState) {
+        const uploadedFile: UploadedFile = {
+          id: fileId,
+          name: file.name,
           size: file.size,
-        }),
-      });
+          type: file.type,
+          status: "PENDING",
+        };
 
-      if (!signedUrlResponse.ok) {
-        const message = await readErrorMessage(signedUrlResponse);
-        throw new Error(message || 'Failed to get signed URL');
+        setUploadedFiles((prev) => [...prev, uploadedFile]);
       }
 
-      const { uploadUrl, uploadId, storageKey } = await signedUrlResponse.json();
+      try {
+        const signedUrlResponse = await fetch('/api/uploads/signed-url', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenderId: tenderIdValue,
+            filename: file.name,
+            mime: file.type || 'application/octet-stream',
+            size: file.size,
+            isAdvertisement,
+          }),
+        });
 
-      setUploadedFiles(prev => 
-        prev.map(f => 
-          f.id === fileId 
-            ? { ...f, status: "UPLOADING", uploadId, storageKey } 
-            : f
-        )
-      );
+        if (!signedUrlResponse.ok) {
+          const message = await readErrorMessage(signedUrlResponse);
+          throw new Error(message || 'Failed to get signed URL');
+        }
 
-      // Upload file to storage
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': file.type || 'application/octet-stream',
-        },
-        body: file,
-      });
+        const { uploadUrl, uploadId, storageKey } = await signedUrlResponse.json();
 
-      if (!uploadResponse.ok) {
-        const message = await readErrorMessage(uploadResponse);
-        throw new Error(message || 'Failed to upload file');
+        if (!suppressState) {
+          setUploadedFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileId
+                ? { ...f, status: "UPLOADING", uploadId, storageKey }
+                : f
+            )
+          );
+        }
+
+        const uploadResponse = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream',
+          },
+          body: file,
+        });
+
+        if (!uploadResponse.ok) {
+          const message = await readErrorMessage(uploadResponse);
+          throw new Error(message || 'Failed to upload file');
+        }
+
+        const completeResponse = await fetch('/api/uploads/complete', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uploadId }),
+        });
+
+        if (!completeResponse.ok) {
+          const message = await readErrorMessage(completeResponse);
+          throw new Error(message || 'Failed to complete upload');
+        }
+
+        if (!suppressState) {
+          setUploadedFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileId
+                ? { ...f, status: "PROCESSING" }
+                : f
+            )
+          );
+        }
+
+        return { uploadId, storageKey };
+      } catch (error) {
+        console.error('Upload error:', error);
+
+        if (!suppressState) {
+          setUploadedFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileId
+                ? {
+                    ...f,
+                    status: "FAILED",
+                    error: error instanceof Error ? error.message : 'Upload failed',
+                  }
+                : f
+            )
+          );
+          return undefined;
+        }
+
+        throw error instanceof Error ? error : new Error('Upload failed');
       }
-
-      // Complete upload
-      const completeResponse = await fetch('/api/uploads/complete', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uploadId }),
-      });
-
-      if (!completeResponse.ok) {
-        const message = await readErrorMessage(completeResponse);
-        throw new Error(message || 'Failed to complete upload');
-      }
-
-      // Update status to completed
-      setUploadedFiles(prev => 
-        prev.map(f => 
-          f.id === fileId 
-            ? { ...f, status: "PROCESSING" } 
-            : f
-        )
-      );
-
-    } catch (error) {
-      console.error('Upload error:', error);
-      setUploadedFiles(prev => 
-        prev.map(f => f.id === fileId ? { 
-          ...f, 
-          status: "FAILED", 
-          error: error instanceof Error ? error.message : 'Upload failed' 
-        } : f)
-      );
-    }
-  }, [readErrorMessage]);
+    },
+    [readErrorMessage]
+  );
 
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files) return;
@@ -364,10 +387,50 @@ export default function CreateTenderPage() {
     });
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAdvertisementImage(file);
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+
+    if (e.target) {
+      e.target.value = "";
+    }
+
+    if (!file) {
+      return;
+    }
+
+    const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+    if (!allowedExtensions.includes(extension)) {
+      alert('Please upload a JPG, PNG, GIF, or WEBP image for the advertisement.');
+      return;
+    }
+
+    if (!validateForm()) {
+      return;
+    }
+
+    try {
+      setAdvertisementUploadError(null);
+      setAdvertisementUploadStatus('PENDING');
+      setAdvertisementImageName(file.name);
+
+      const currentTenderId = await syncTender('DRAFT');
+
+      setAdvertisementUploadStatus('UPLOADING');
+      await uploadFile(file, currentTenderId, {
+        isAdvertisement: true,
+        suppressState: true,
+      });
+
+      setAdvertisementUploadStatus('PROCESSING');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to upload advertisement image.';
+      console.error('Advertisement upload error:', error);
+      setAdvertisementUploadError(message);
+      setAdvertisementUploadStatus('FAILED');
+      setAdvertisementImageName(null);
+      alert(message);
     }
   };
 
@@ -532,10 +595,26 @@ export default function CreateTenderPage() {
                       </p>
                     </label>
                   </div>
-                  {advertisementImage && (
-                    <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
-                      <p className="text-sm text-green-700">
-                        ✓ {advertisementImage.name} uploaded successfully
+                  {advertisementUploadStatus && (
+                    <div
+                      className={`mt-4 p-3 rounded-lg border ${
+                        advertisementUploadStatus === "FAILED"
+                          ? "bg-red-50 border-red-200"
+                          : "bg-green-50 border-green-200"
+                      }`}
+                    >
+                      <p
+                        className={`text-sm ${
+                          advertisementUploadStatus === "FAILED"
+                            ? "text-red-700"
+                            : "text-green-700"
+                        }`}
+                      >
+                        {advertisementUploadStatus === "FAILED"
+                          ? advertisementUploadError ?? "Failed to upload advertisement image."
+                          : advertisementUploadStatus === "PROCESSING"
+                            ? `"${advertisementImageName ?? "Advertisement image"}" uploaded. Processing...`
+                            : `Uploading "${advertisementImageName ?? "advertisement image"}"...`}
                       </p>
                     </div>
                   )}

@@ -13,17 +13,17 @@ import {
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import type { FileNode } from "@/lib/mocks/files";
+import type { TenderDocumentNode } from "@/types/tender-documents";
 
 interface FileTreeProps {
-  tree: FileNode;
+  tree: TenderDocumentNode;
   selectedId?: string;
-  onSelect: (node: FileNode) => void;
+  onSelect: (node: TenderDocumentNode) => void;
   className?: string;
 }
 
 export function FileTree({ tree, selectedId, onSelect, className }: FileTreeProps) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(["root", "main"]));
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(["root"]));
 
   const toggleExpand = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -37,7 +37,7 @@ export function FileTree({ tree, selectedId, onSelect, className }: FileTreeProp
     });
   }, []);
 
-  const getFileIcon = (node: FileNode) => {
+  const getFileIcon = (node: TenderDocumentNode) => {
     if (node.type === "folder") {
       return expanded.has(node.id) ? (
         <FolderOpen className="h-4 w-4 text-blue-500" />
@@ -63,7 +63,7 @@ export function FileTree({ tree, selectedId, onSelect, className }: FileTreeProp
     }
   };
 
-  const renderNode = (node: FileNode, depth: number = 0) => {
+  const renderNode = (node: TenderDocumentNode, depth: number = 0) => {
     const isExpanded = expanded.has(node.id);
     const isSelected = selectedId === node.id;
     const hasChildren = node.children && node.children.length > 0;

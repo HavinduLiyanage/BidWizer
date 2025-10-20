@@ -101,7 +101,7 @@ export function BriefTab({ tenderId, scope }: BriefTabProps) {
             </div>
             <p className="text-sm font-medium text-gray-700 mb-1">No brief generated</p>
             <p className="text-xs text-gray-500 max-w-xs">
-              Click "Generate Brief" to get an AI-powered summary of this tender
+              Click &quot;Generate Brief&quot; to get an AI-powered summary of this tender
             </p>
           </div>
         )}

@@ -23,6 +23,11 @@ const FILE_KIND_BY_EXTENSION: Record<string, UploadKind> = {
   docx: UploadKind.pdf, // Treat DOCX as PDF for now
   xls: UploadKind.pdf, // Treat XLS as PDF for now
   xlsx: UploadKind.pdf, // Treat XLSX as PDF for now
+  jpg: UploadKind.image,
+  jpeg: UploadKind.image,
+  png: UploadKind.image,
+  gif: UploadKind.image,
+  webp: UploadKind.image,
 }
 
 const MIME_TYPES_BY_EXTENSION: Record<string, readonly string[]> = {
@@ -32,6 +37,11 @@ const MIME_TYPES_BY_EXTENSION: Record<string, readonly string[]> = {
   docx: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
   xls: ['application/vnd.ms-excel'],
   xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  jpg: ['image/jpeg'],
+  jpeg: ['image/jpeg'],
+  png: ['image/png'],
+  gif: ['image/gif'],
+  webp: ['image/webp'],
 }
 
 function resolveMaxUploadSizeBytes(): number {
@@ -68,6 +78,7 @@ const signedUrlSchema = z.object({
       MAX_UPLOAD_SIZE_BYTES,
       `File exceeds maximum allowed size (${Math.floor(MAX_UPLOAD_SIZE_BYTES / (1024 * 1024))} MB)`
     ),
+  isAdvertisement: z.boolean().optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -79,7 +90,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { tenderId, filename, mime, size } = signedUrlSchema.parse(body)
+    const { tenderId, filename, mime, size, isAdvertisement } = signedUrlSchema.parse(body)
 
     const tender = await db.tender.findUnique({
       where: { id: tenderId },
@@ -123,6 +134,13 @@ export async function POST(request: NextRequest) {
 
     if (!kind) {
       return NextResponse.json({ error: 'Unsupported file type' }, { status: 400 })
+    }
+
+    if (isAdvertisement && kind !== UploadKind.image) {
+      return NextResponse.json(
+        { error: 'Tender advertisement must be an image file' },
+        { status: 400 }
+      )
     }
 
     if (size <= 0) {
@@ -204,6 +222,7 @@ export async function POST(request: NextRequest) {
         storageKey,
         orgId: tender.organizationId,
         tenderId,
+        isAdvertisement: Boolean(isAdvertisement),
       },
     })
 

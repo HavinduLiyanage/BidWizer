@@ -170,7 +170,7 @@ export default function WaitingConfirmationPage() {
                   </h1>
                   
                   <p className="text-gray-600 mb-6 text-lg">
-                    We've sent a confirmation link to{" "}
+                    We&apos;ve sent a confirmation link to{" "}
                     <span className="font-semibold text-gray-900">
                       {email || "your email address"}
                     </span>
@@ -178,7 +178,7 @@ export default function WaitingConfirmationPage() {
 
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
                     <h3 className="font-semibold text-gray-900 mb-3">
-                      What's next?
+                      What&apos;s next?
                     </h3>
                     <div className="space-y-3 text-left">
                       <div className="flex items-start gap-3">
@@ -202,7 +202,7 @@ export default function WaitingConfirmationPage() {
                           3
                         </div>
                         <p className="text-sm text-gray-600">
-                          You'll be redirected to Step 2 automatically
+                          You&apos;ll be redirected to Step 2 automatically
                         </p>
                       </div>
                     </div>
@@ -210,7 +210,7 @@ export default function WaitingConfirmationPage() {
 
                   <div className="space-y-4">
                     <p className="text-sm text-gray-500">
-                      Didn't receive the email?
+                      Didn&apos;t receive the email?
                     </p>
                     
                     <Button

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { TenderStatus } from '@prisma/client'
 
 import { db } from '@/lib/db'
+import { resolveUploadDownloadUrl } from '@/lib/uploads'
 
 function buildAvatarUrl(name: string): string {
   const encodedName = encodeURIComponent(name || 'Publisher')
@@ -29,9 +30,12 @@ export async function GET(
         select: {
           id: true,
           originalName: true,
-          url: true,
           mimeType: true,
           size: true,
+          isAdvertisement: true,
+          url: true,
+          storageKey: true,
+          filename: true,
         },
       },
     },
@@ -69,12 +73,21 @@ export async function GET(
         tender.organization?.logo ??
         buildAvatarUrl(tender.organization?.name ?? 'Publisher'),
     },
-    attachments: tender.uploads.map((upload) => ({
-      id: upload.id,
-      name: upload.originalName,
-      url: upload.url,
-      mimeType: upload.mimeType,
-      size: upload.size,
-    })),
+    attachments: await Promise.all(
+      tender.uploads.map(async (upload) => ({
+        id: upload.id,
+        name: upload.originalName,
+        url: await resolveUploadDownloadUrl({
+          id: upload.id,
+          storageKey: upload.storageKey,
+          url: upload.url,
+          filename: upload.filename,
+          originalName: upload.originalName,
+        }),
+        mimeType: upload.mimeType,
+        size: upload.size,
+        isAdvertisement: upload.isAdvertisement,
+      })),
+    ),
   })
 }

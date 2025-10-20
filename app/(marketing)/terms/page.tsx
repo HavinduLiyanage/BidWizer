@@ -20,7 +20,7 @@ export default function TermsPage() {
                 1. Acceptance of Terms
               </h2>
               <p className="text-gray-700 leading-relaxed mb-4">
-                By accessing and using BidWizer ("the Service"), you accept and agree to be bound by the terms and provision of this agreement. If you do not agree to abide by the above, please do not use this service.
+                By accessing and using BidWizer (&quot;the Service&quot;), you accept and agree to be bound by the terms and provision of this agreement. If you do not agree to abide by the above, please do not use this service.
               </p>
             </section>
 

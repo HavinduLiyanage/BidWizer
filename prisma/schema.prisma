@@ -155,6 +155,7 @@ model Upload {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   tenderId       String
+  isAdvertisement Boolean        @default(false)
   extractedFiles ExtractedFile[]
   tender         Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
 
@@ -314,6 +315,7 @@ enum TenderStatus {
 enum UploadKind {
   zip
   pdf
+  image
 }
 
 enum UploadStatus {

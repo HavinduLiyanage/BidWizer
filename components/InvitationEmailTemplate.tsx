@@ -32,7 +32,7 @@ export function InvitationEmailTemplate({
       {/* Email Content */}
       <div className="p-8">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">
-          You're Invited to Join {companyName}
+          You&apos;re Invited to Join {companyName}
         </h2>
         
         <p className="text-gray-600 mb-6">
@@ -45,11 +45,11 @@ export function InvitationEmailTemplate({
         
         <p className="text-gray-600 mb-6">
           BidWizer is a powerful tender management platform that helps teams collaborate on bidding opportunities. 
-          You'll be able to work together on tender submissions, track progress, and access AI-powered tools to improve your success rate.
+          You&apos;ll be able to work together on tender submissions, track progress, and access AI-powered tools to improve your success rate.
         </p>
 
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <h3 className="font-semibold text-blue-900 mb-2">What you'll get access to:</h3>
+          <h3 className="font-semibold text-blue-900 mb-2">What you&apos;ll get access to:</h3>
           <ul className="text-sm text-blue-800 space-y-1">
             <li>• Collaborate on tender submissions with your team</li>
             <li>• Access AI-powered bid writing assistance</li>
@@ -71,12 +71,12 @@ export function InvitationEmailTemplate({
         </div>
 
         <p className="text-sm text-gray-500 mb-4">
-          This invitation will expire in 7 days. If you don't want to join this workspace, you can safely ignore this email.
+          This invitation will expire in 7 days. If you don&apos;t want to join this workspace, you can safely ignore this email.
         </p>
 
         <div className="border-t border-gray-200 pt-6">
           <p className="text-sm text-gray-500">
-            If you're having trouble with the button above, copy and paste this URL into your web browser:
+            If you&apos;re having trouble with the button above, copy and paste this URL into your web browser:
           </p>
           <p className="text-sm text-blue-600 break-all mt-1">
             {inviteLink}

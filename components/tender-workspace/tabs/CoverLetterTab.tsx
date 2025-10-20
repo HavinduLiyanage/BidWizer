@@ -210,7 +210,7 @@ export function CoverLetterTab({ tenderId }: CoverLetterTabProps) {
                 <FileText className="h-6 w-6 text-purple-500" />
               </div>
               <p className="text-xs text-gray-500 max-w-xs">
-                Fill in the form above and click "Generate Letter" to create a customized cover
+                Fill in the form above and click &quot;Generate Letter&quot; to create a customized cover
                 letter
               </p>
             </div>

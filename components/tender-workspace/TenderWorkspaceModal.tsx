@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { X, Search, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -8,11 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { DocumentViewer } from "./DocumentViewer";
 import { AiAssistantPanel } from "./AiAssistantPanel";
-import { getTenderTree, type FileNode } from "@/lib/mocks/files";
 import { cn } from "@/lib/utils";
 import { FileTree } from "./FileTree";
 import { UploadPanel } from "./UploadPanel";
 import { useUserSession } from "@/lib/hooks/use-session";
+import type { TenderDocumentNode } from "@/types/tender-documents";
 
 interface TenderWorkspaceModalProps {
   tenderId: string;
@@ -25,52 +25,142 @@ export function TenderWorkspaceModal({
   isOpen,
   onClose,
 }: TenderWorkspaceModalProps) {
-  const [tree, setTree] = useState<FileNode | null>(null);
-  const [selectedNode, setSelectedNode] = useState<FileNode | null>(null);
+  const [tree, setTree] = useState<TenderDocumentNode | null>(null);
+  const [selectedNode, setSelectedNode] = useState<TenderDocumentNode | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(false);
   const [isAiPanelCollapsed, setIsAiPanelCollapsed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { user } = useUserSession();
   
   // Check if user is a publisher (only publishers can upload files)
   const canUpload = user?.organizationType === 'PUBLISHER';
 
-  // Load tree data
-  useEffect(() => {
-    if (isOpen) {
-      loadTree();
-      // Load last selected file from localStorage
-      const lastFileId = localStorage.getItem(`tender_${tenderId}_lastFile`);
-      if (lastFileId && tree) {
-        const findNode = (node: FileNode): FileNode | null => {
-          if (node.id === lastFileId) return node;
-          if (node.children) {
-            for (const child of node.children) {
-              const found = findNode(child);
-              if (found) return found;
-            }
-          }
-          return null;
-        };
-        const node = findNode(tree);
-        if (node) setSelectedNode(node);
-      }
-    }
-  }, [isOpen, tenderId]);
+  const findFirstFile = useCallback((node: TenderDocumentNode | null): TenderDocumentNode | null => {
+    if (!node) return null;
+    if (node.type === "file") return node;
+    return node.children?.reduce<TenderDocumentNode | null>((found, child) => {
+      if (found) return found;
+      return findFirstFile(child);
+    }, null) ?? null;
+  }, []);
 
-  const loadTree = async () => {
+  const findNodeById = useCallback(
+    (node: TenderDocumentNode | null, id: string): TenderDocumentNode | null => {
+      if (!node) return null;
+      if (node.id === id) return node;
+      if (!node.children) return null;
+      for (const child of node.children) {
+        const found = findNodeById(child, id);
+        if (found) return found;
+      }
+      return null;
+    },
+    [],
+  );
+
+  const loadTree = useCallback(async () => {
     setIsLoading(true);
+    setError(null);
+    const runFetch = async (endpoint: string) => {
+      const response = await fetch(endpoint, { cache: "no-store" });
+      const payload = await response
+        .json()
+        .catch(() => ({ error: response.statusText }));
+
+      if (!response.ok) {
+        const message =
+          typeof payload?.error === "string"
+            ? payload.error
+            : `Failed to load workspace documents (${response.status})`;
+        const error = new Error(message) as Error & { status?: number };
+        error.status = response.status;
+        throw error;
+      }
+
+      const tree = (payload as { tree?: TenderDocumentNode }).tree;
+      if (!tree) {
+        throw new Error("Workspace data is unavailable for this tender.");
+      }
+      return tree;
+    };
+
     try {
-      const data = await getTenderTree(tenderId);
-      setTree(data);
-    } catch (error) {
-      console.error("Failed to load tree:", error);
+      let treeData: TenderDocumentNode;
+
+      try {
+        const endpoint = user
+          ? `/api/tenders/${tenderId}/documents`
+          : `/api/public/tenders/${tenderId}/documents`;
+        treeData = await runFetch(endpoint);
+      } catch (error) {
+        const status = (error as Error & { status?: number }).status;
+        if (user && (status === 401 || status === 403)) {
+          treeData = await runFetch(`/api/public/tenders/${tenderId}/documents`);
+        } else {
+          throw error;
+        }
+      }
+
+      setTree(treeData);
+
+      setSelectedNode((current) => {
+        if (current) {
+          const freshNode = findNodeById(treeData, current.id);
+          if (freshNode) {
+            return freshNode;
+          }
+        }
+        return findFirstFile(treeData) ?? treeData;
+      });
+    } catch (err) {
+      console.error("Failed to load tree:", err);
+      setError(
+        err instanceof Error ? err.message : "Unable to load workspace documents.",
+      );
+      setTree(null);
+      setSelectedNode(null);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [findFirstFile, findNodeById, tenderId, user]);
 
-  const handleSelectNode = (node: FileNode) => {
+  // Load tree data when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      void loadTree();
+    }
+  }, [isOpen, loadTree]);
+
+  // Restore previously selected file
+  useEffect(() => {
+    if (!isOpen || !tree) {
+      return;
+    }
+
+    const lastFileId = localStorage.getItem(`tender_${tenderId}_lastFile`);
+    if (!lastFileId) {
+      return;
+    }
+
+    const findNode = (node: TenderDocumentNode): TenderDocumentNode | null => {
+      if (node.id === lastFileId) return node;
+      if (node.children) {
+        for (const child of node.children) {
+          const found = findNode(child);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const node = findNode(tree);
+    if (node) {
+      setSelectedNode(node);
+    }
+  }, [isOpen, tenderId, tree]);
+
+  const handleSelectNode = (node: TenderDocumentNode) => {
     setSelectedNode(node);
     // Save to localStorage
     if (node.type === "file") {
@@ -152,7 +242,7 @@ export function TenderWorkspaceModal({
         )}
 
         {/* Main Content - 3 Panes */}
-        {!isLoading && tree && (
+        {!isLoading && tree && !error && (
           <div className="flex-1 flex overflow-hidden bg-gray-50">
             {/* Left: File Tree */}
             <div
@@ -198,7 +288,10 @@ export function TenderWorkspaceModal({
 
             {/* Center: Document Viewer */}
             <div className="flex-1 overflow-hidden document-viewer min-w-0">
-              <DocumentViewer selectedNode={selectedNode} />
+              <DocumentViewer
+                tenderId={tenderId}
+                selectedNode={selectedNode}
+              />
             </div>
 
             {/* Right: AI Assistant */}
@@ -239,6 +332,16 @@ export function TenderWorkspaceModal({
                 </>
               )}
             </div>
+          </div>
+        )}
+
+        {!isLoading && error && (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-6">
+            <p className="text-sm font-semibold text-gray-800">Workspace not available</p>
+            <p className="text-xs text-gray-500 max-w-sm">{error}</p>
+            <Button variant="outline" size="sm" onClick={() => void loadTree()}>
+              Retry
+            </Button>
           </div>
         )}
       </DialogContent>
