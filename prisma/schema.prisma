@@ -61,6 +61,7 @@ model Organization {
   plans         Plan[]
   subscriptions Subscription[]
   tenders       Tender[]
+  indexArtifacts IndexArtifact[]
 
   @@map("organizations")
 }
@@ -131,6 +132,7 @@ model Tender {
   chatThreads       ChatThread[]
   chunks            Chunk[]
   extractedFiles    ExtractedFile[]
+  indexArtifacts    IndexArtifact[]
   organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   uploads           Upload[]
 
@@ -231,6 +233,27 @@ model ChatMessage {
   @@map("chat_messages")
 }
 
+model IndexArtifact {
+  id          String              @id @default(cuid())
+  orgId       String
+  tenderId    String
+  docHash     String              @unique
+  version     Int                 @default(1)
+  status      IndexArtifactStatus @default(BUILDING)
+  storageKey  String
+  totalChunks Int                 @default(0)
+  totalPages  Int                 @default(0)
+  bytesApprox Int                 @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  organization Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  tender      Tender              @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, tenderId])
+  @@index([status])
+  @@map("index_artifacts")
+}
+
 model AiUsage {
   id           String       @id @default(cuid())
   model        String
@@ -329,6 +352,12 @@ enum ChatMessageRole {
   user
   assistant
   system
+}
+
+enum IndexArtifactStatus {
+  BUILDING
+  READY
+  FAILED
 }
 
 enum PlanInterval {

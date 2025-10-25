@@ -7,21 +7,11 @@ import * as unzipper from 'unzipper'
 import { Prisma, UploadKind, UploadStatus } from '@prisma/client'
 
 import { db } from '@/lib/db'
-import { createSupabaseServiceClient } from '@/lib/storage'
-import { readEnvVar } from '@/lib/env'
+import { downloadSupabaseObject, getSupabaseUploadsBucketName } from '@/lib/storage'
 
 const MOCK_STORAGE_PREFIX = 'mock://'
-const DEFAULT_BUCKET_NAME = 'tender-uploads'
 const MAX_ZIP_ENTRIES = 2000
 const DEFAULT_STORED_FILENAME = 'original.bin'
-
-function getSupabaseBucketName(): string {
-  return (
-    readEnvVar('SUPABASE_TENDER_UPLOADS_BUCKET') ??
-    readEnvVar('SUPABASE_STORAGE_UPLOADS_BUCKET') ??
-    DEFAULT_BUCKET_NAME
-  )
-}
 
 function parseMockStorageKey(storageKey: string): { uploadId: string; filename: string } {
   const withoutPrefix = storageKey.slice(MOCK_STORAGE_PREFIX.length)
@@ -79,23 +69,8 @@ export async function loadUploadBuffer(storageKey: string | null): Promise<Buffe
     return readFile(filePath)
   }
 
-  const supabaseUrl = readEnvVar('SUPABASE_URL')
-  const supabaseServiceRole = readEnvVar('SUPABASE_SERVICE_ROLE')
-
-  if (!supabaseUrl || !supabaseServiceRole) {
-    throw new Error('Supabase storage variables are not configured')
-  }
-
-  const bucketName = getSupabaseBucketName()
-  const supabaseClient = createSupabaseServiceClient()
-  const { data, error } = await supabaseClient.storage.from(bucketName).download(storageKey)
-
-  if (error || !data) {
-    throw new Error(`Failed to download upload payload: ${error?.message ?? 'unknown error'}`)
-  }
-
-  const arrayBuffer = await data.arrayBuffer()
-  return Buffer.from(arrayBuffer)
+  const bucketName = getSupabaseUploadsBucketName()
+  return downloadSupabaseObject(bucketName, storageKey)
 }
 
 export async function triggerUploadIngestion(uploadId: string): Promise<void> {
