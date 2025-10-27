@@ -55,8 +55,8 @@ export function AiAssistantPanel({
 
         {/* Tab Content */}
         <div className="flex-1 overflow-hidden">
-          <TabsContent value="brief" className="h-full m-0">
-            <BriefTab tenderId={tenderId} scope={selectedFileId ? "file" : "entire"} />
+          <TabsContent value="brief" className="m-0 h-full">
+            <BriefTab tenderId={tenderId} selectedFileId={selectedFileId} />
           </TabsContent>
 
           <TabsContent value="letter" className="h-full m-0">

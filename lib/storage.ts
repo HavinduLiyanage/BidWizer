@@ -35,7 +35,7 @@ export function createSupabaseServiceClient(): SupabaseClient {
   assertServerContext()
 
   const supabaseUrl = readEnvVar('SUPABASE_URL')
-  const supabaseServiceRoleKey = readEnvVar('SUPABASE_SERVICE_ROLE')
+  const supabaseServiceRoleKey = readEnvVar('SUPABASE_SERVICE_ROLE_KEY')
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     throw new Error('Supabase environment variables are not configured')

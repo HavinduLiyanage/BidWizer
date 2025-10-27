@@ -1,5 +1,9 @@
 import { Prisma, PrismaClient } from '@prisma/client'
 
+if (!process.env.PRISMA_DISABLE_PREPARED_STATEMENTS) {
+  process.env.PRISMA_DISABLE_PREPARED_STATEMENTS = 'true'
+}
+
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
@@ -7,11 +11,58 @@ const globalForPrisma = globalThis as unknown as {
 const prismaLogLevels: Prisma.LogLevel[] =
   process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
 
+function adjustConnectionUrlForPgBouncer(url: string | undefined): string | undefined {
+  if (!url) {
+    return undefined
+  }
+
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+    const port = parsed.port
+    const hasPgBouncerFlag = parsed.searchParams.get('pgbouncer') === 'true'
+    const forceDisablePreparedStatements =
+      process.env.PRISMA_DISABLE_PREPARED_STATEMENTS === 'true'
+
+    const looksLikeTransactionPooler =
+      host.includes('pooler.') || host.includes('pgbouncer') || port === '6543'
+
+    if (!forceDisablePreparedStatements && !looksLikeTransactionPooler && !hasPgBouncerFlag) {
+      return undefined
+    }
+
+    parsed.searchParams.set('pgbouncer', 'true')
+
+    if (!parsed.searchParams.has('connection_limit')) {
+      parsed.searchParams.set('connection_limit', '1')
+    }
+
+    console.log('[db] adjusted DATABASE_URL for PgBouncer compatibility')
+
+    return parsed.toString()
+  } catch (error) {
+    console.warn('[db] Failed to adjust DATABASE_URL for PgBouncer compatibility', error)
+    return undefined
+  }
+}
+
+const adjustedDatabaseUrl = adjustConnectionUrlForPgBouncer(process.env.DATABASE_URL)
+
+const prismaClientOptions: Prisma.PrismaClientOptions = {
+  log: prismaLogLevels,
+}
+
+if (adjustedDatabaseUrl) {
+  prismaClientOptions.datasources = {
+    db: {
+      url: adjustedDatabaseUrl,
+    },
+  }
+}
+
 export const db =
   globalForPrisma.prisma ??
-  new PrismaClient({
-    log: prismaLogLevels,
-  })
+  new PrismaClient(prismaClientOptions)
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 

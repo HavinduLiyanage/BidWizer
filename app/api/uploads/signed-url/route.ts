@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
     const storedFilename = `original.${extension}`
 
     const supabaseUrl = readEnvVar('SUPABASE_URL')
-    const supabaseServiceRole = readEnvVar('SUPABASE_SERVICE_ROLE')
+    const supabaseServiceRole = readEnvVar('SUPABASE_SERVICE_ROLE_KEY')
     const supabaseBucket =
       readEnvVar('SUPABASE_TENDER_UPLOADS_BUCKET') ??
       readEnvVar('SUPABASE_STORAGE_UPLOADS_BUCKET') ??

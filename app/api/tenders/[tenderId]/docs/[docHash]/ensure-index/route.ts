@@ -11,14 +11,13 @@ import {
   INDEX_ARTIFACT_VERSION,
 } from '@/lib/indexing'
 import { ensureTenderAccess } from '@/lib/indexing/access'
-import { enqueueIndexBuild } from '@/lib/indexing/queue'
 import { getSupabaseUploadsBucketName } from '@/lib/storage'
 import {
   buildProgressSnapshot,
   getRedisClient,
-  readIndexProgress,
   writeIndexProgress,
 } from '@/lib/redis'
+import { indexingQueue, INDEX_QUEUE } from '@/lib/queue'
 
 const paramsSchema = z.object({
   tenderId: z.string().min(1),
@@ -38,6 +37,7 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
     }
 
     const { tenderId, docHash: docHashParam } = paramsSchema.parse(context.params)
+    console.log('[ensure-index] hit', { tenderId, docHash: docHashParam })
     const body = bodySchema.parse(await request.json())
 
     let tenderAccess
@@ -77,10 +77,21 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
     const existingArtifact = await db.indexArtifact.findUnique({
       where: { docHash },
     })
+    console.log(
+      '[ensure-index] artifact?',
+      existingArtifact
+        ? {
+            id: existingArtifact.id,
+            status: existingArtifact.status,
+            updatedAt: existingArtifact.updatedAt.toISOString(),
+          }
+        : 'none',
+    )
 
     if (existingArtifact && existingArtifact.status === IndexArtifactStatus.READY && !body.forceRebuild) {
+      console.log('[ensure-index] already READY')
       return NextResponse.json({
-        status: 'ready',
+        status: 'READY',
         docHash,
         artifact: {
           id: existingArtifact.id,
@@ -93,43 +104,67 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
       })
     }
 
-    if (existingArtifact && existingArtifact.status === IndexArtifactStatus.BUILDING && !body.forceRebuild) {
-      const redis = getRedisClient()
-      const progress = await readIndexProgress(redis, docHash)
+    const artifactVersion = existingArtifact?.version ?? INDEX_ARTIFACT_VERSION
+    const preservedStorageKey = existingArtifact?.storageKey ?? ''
+
+    let artifact = existingArtifact
+    if (!artifact) {
+      artifact = await db.indexArtifact.create({
+        data: {
+          docHash,
+          orgId: tenderAccess.organizationId,
+          tenderId: tenderAccess.tenderId,
+          version: artifactVersion,
+          status: IndexArtifactStatus.BUILDING,
+          storageKey: preservedStorageKey,
+          totalChunks: 0,
+          totalPages: 0,
+          bytesApprox: upload.size ?? 0,
+        },
+      })
+      console.log('[ensure-index] created artifact row', { id: artifact.id })
+    }
+
+    const shouldResetStatus =
+      artifact.status !== IndexArtifactStatus.BUILDING || Boolean(body.forceRebuild)
+
+    if (shouldResetStatus) {
+      artifact = await db.indexArtifact.update({
+        where: { id: artifact.id },
+        data: {
+          status: IndexArtifactStatus.BUILDING,
+          version: artifactVersion,
+          totalChunks: 0,
+          totalPages: 0,
+          bytesApprox: upload.size ?? 0,
+          storageKey: preservedStorageKey,
+        },
+      })
+      console.log('[ensure-index] marked BUILDING', { id: artifact.id })
+    }
+
+    const redis = getRedisClient()
+    const lockKey = `lock:index:${docHash}`
+    let lockValue = await redis.get(lockKey)
+    console.log('[ensure-index] lock?', lockValue)
+
+    if (lockValue && !body.forceRebuild) {
+      console.log('[ensure-index] already building (locked)')
       return NextResponse.json({
-        status: 'building',
+        status: 'BUILDING',
         docHash,
-        progress,
         mismatch: hashMismatch ? { expected: docHashParam, actual: docHash } : undefined,
       })
     }
 
-    const artifactVersion = existingArtifact?.version ?? INDEX_ARTIFACT_VERSION
-    const preservedStorageKey = existingArtifact?.storageKey ?? ''
+    if (lockValue && body.forceRebuild) {
+      console.log('[ensure-index] forceRebuild clearing lock')
+      await redis.del(lockKey)
+      lockValue = null
+    }
 
-    await db.indexArtifact.upsert({
-      where: { docHash },
-      create: {
-        docHash,
-        orgId: tenderAccess.organizationId,
-        tenderId: tenderAccess.tenderId,
-        version: artifactVersion,
-        status: IndexArtifactStatus.BUILDING,
-        storageKey: preservedStorageKey,
-        totalChunks: 0,
-        totalPages: 0,
-        bytesApprox: upload.size ?? 0,
-      },
-      update: {
-        status: IndexArtifactStatus.BUILDING,
-        totalChunks: 0,
-        totalPages: 0,
-        bytesApprox: upload.size ?? 0,
-        storageKey: preservedStorageKey,
-      },
-    })
+    await redis.set(lockKey, '1', 'EX', 60 * 30)
 
-    const redis = getRedisClient()
     await writeIndexProgress(
       redis,
       docHash,
@@ -143,19 +178,34 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
       }),
     )
 
-    await enqueueIndexBuild({
+    const job = await indexingQueue.add(
+      'index',
+      {
+        tenderId,
+        docHash,
+        orgId: tenderAccess.organizationId,
+        uploadStorageKey: upload.storageKey,
+        uploadBucket: getSupabaseUploadsBucketName(),
+        artifactVersion,
+      },
+      {
+        removeOnComplete: 100,
+        removeOnFail: 100,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+      },
+    )
+
+    console.log('[ensure-index] enqueued', {
+      tenderId,
       docHash,
-      orgId: tenderAccess.organizationId,
-      tenderId: tenderAccess.tenderId,
-      uploadStorageKey: upload.storageKey,
-      uploadBucket: getSupabaseUploadsBucketName(),
-      artifactVersion,
+      queue: INDEX_QUEUE,
+      jobId: job.id,
     })
 
     return NextResponse.json({
-      status: 'building',
+      status: 'ENQUEUED',
       docHash,
-      queued: true,
       mismatch: hashMismatch ? { expected: docHashParam, actual: docHash } : undefined,
     })
   } catch (error) {

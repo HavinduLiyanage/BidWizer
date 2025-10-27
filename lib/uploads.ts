@@ -59,7 +59,10 @@ export async function resolveUploadDownloadUrl(params: {
   return null
 }
 
-export async function loadUploadBuffer(storageKey: string | null): Promise<Buffer> {
+export async function loadUploadBuffer(
+  storageKey: string | null,
+  options: { bucket?: string } = {},
+): Promise<Buffer> {
   if (!storageKey) {
     throw new Error('Upload is missing storageKey')
   }
@@ -69,7 +72,7 @@ export async function loadUploadBuffer(storageKey: string | null): Promise<Buffe
     return readFile(filePath)
   }
 
-  const bucketName = getSupabaseUploadsBucketName()
+  const bucketName = options.bucket ?? getSupabaseUploadsBucketName()
   return downloadSupabaseObject(bucketName, storageKey)
 }
 

@@ -137,7 +137,7 @@ Environment variables required:
 
 - `DATABASE_URL`
 - `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE`
+- `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_TENDER_UPLOADS_BUCKET` (optional; defaults to `tender-uploads`)
 - `SUPABASE_TENDER_INDEX_BUCKET` (optional; defaults to `tender-indexes`)
 - `REDIS_URL` (or `UPSTASH_REDIS_URL`)

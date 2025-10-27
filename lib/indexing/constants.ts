@@ -1,3 +1,5 @@
+import { readEnvVar } from '../env'
+
 export const INDEX_ARTIFACT_VERSION = 1
 export const INDEX_ARTIFACT_FILENAME = 'index.v1.tar.gz'
 export const INDEX_MANIFEST_FILENAME = 'manifest.json'
@@ -18,4 +20,7 @@ export const MAX_ARTIFACT_CACHE_BYTES = 512 * 1024 * 1024 // 512 MB default cach
 
 export const LOCK_HEARTBEAT_INTERVAL_MS = 25_000
 export const PROGRESS_TTL_SECONDS = 12 * 60 * 60
-export const INDEX_QUEUE_NAME = 'tender-indexing'
+
+const DEFAULT_INDEX_QUEUE_NAME = 'tender-indexing'
+export const INDEX_QUEUE_NAME =
+  readEnvVar('BIDWIZER_INDEX_QUEUE') || DEFAULT_INDEX_QUEUE_NAME

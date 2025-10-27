@@ -1,6 +1,7 @@
 import { Queue, type JobsOptions } from 'bullmq'
+import type { Redis } from 'ioredis'
 
-import { getBullQueueConnection } from '@/lib/redis'
+import { createRedisConnection } from '@/lib/redis'
 import { INDEX_QUEUE_NAME } from '@/lib/indexing/constants'
 
 export interface BuildManifestJobPayload {
@@ -13,11 +14,19 @@ export interface BuildManifestJobPayload {
 }
 
 let queue: Queue<BuildManifestJobPayload> | null = null
+let queueConnection: Redis | null = null
+
+function getQueueConnection(): Redis {
+  if (!queueConnection) {
+    queueConnection = createRedisConnection()
+  }
+  return queueConnection
+}
 
 export function getIndexingQueue(): Queue<BuildManifestJobPayload> {
   if (!queue) {
     queue = new Queue<BuildManifestJobPayload>(INDEX_QUEUE_NAME, {
-      connection: getBullQueueConnection(),
+      connection: getQueueConnection(),
       defaultJobOptions: defaultJobOptions(),
     })
   }

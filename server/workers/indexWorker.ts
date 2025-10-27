@@ -5,8 +5,8 @@ import { existsSync } from 'fs'
 import os from 'os'
 import { basename, join } from 'path'
 
-import { IndexArtifactStatus, PrismaClient } from '@prisma/client'
-import { Queue, Worker, type Job } from 'bullmq'
+import { IndexArtifactStatus, Prisma, PrismaClient } from '@prisma/client'
+import { Worker, type Job, type Queue } from 'bullmq'
 import { gzipSync } from 'fflate'
 import unzipper from 'unzipper'
 import { PDFParse } from 'pdf-parse'
@@ -15,13 +15,13 @@ import tar from 'tar-stream'
 import {
   acquireIndexLock,
   buildProgressSnapshot,
-  getBullQueueConnection,
   getRedisClient,
   releaseIndexLock,
   renewIndexLock,
   writeIndexResumeState,
   writeIndexProgress,
 } from '../../lib/redis'
+import { connection, INDEX_QUEUE, indexingQueue } from '../../lib/queue'
 import type { ArtifactInnerFile } from '../../lib/indexing/artifacts'
 import {
   ArtifactManifest,
@@ -38,7 +38,6 @@ import {
   INDEX_HNSW_FILENAME,
   INDEX_MANIFEST_FILENAME,
   INDEX_ARTIFACT_VERSION,
-  INDEX_QUEUE_NAME,
   LOCK_HEARTBEAT_INTERVAL_MS,
 } from '../../lib/indexing/constants'
 import {
@@ -47,13 +46,61 @@ import {
 } from '../../lib/indexing/artifacts'
 import { encodeFloat32ToFloat16, embedTexts } from '../../lib/embedding'
 import {
-  downloadSupabaseObject,
   getSupabaseIndexBucketName,
   getSupabaseUploadsBucketName,
   uploadSupabaseObject,
 } from '../../lib/storage'
+import { loadUploadBuffer } from '../../lib/uploads'
 
-const prisma = new PrismaClient()
+if (!process.env.PRISMA_DISABLE_PREPARED_STATEMENTS) {
+  process.env.PRISMA_DISABLE_PREPARED_STATEMENTS = 'true'
+}
+
+function adjustDatabaseUrlForPgBouncer(url: string | undefined): string | undefined {
+  if (!url) return url
+  try {
+    const parsed = new URL(url)
+    const hasPreparedStatementsOverride =
+      parsed.searchParams.has('pgbouncer') ||
+      parsed.searchParams.has('preparedStatements') ||
+      parsed.searchParams.has('statement_cache_size')
+
+    if (!hasPreparedStatementsOverride) {
+      parsed.searchParams.set('pgbouncer', 'true')
+      if (!parsed.searchParams.has('connection_limit')) {
+        parsed.searchParams.set('connection_limit', '1')
+      }
+      console.log('[worker] adjusted DATABASE_URL for PgBouncer compatibility')
+    }
+    return parsed.toString()
+  } catch {
+    return url
+  }
+}
+
+const prismaDatabaseUrl = adjustDatabaseUrlForPgBouncer(process.env.DATABASE_URL)
+const prismaOptions: Prisma.PrismaClientOptions = {
+  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+}
+
+if (prismaDatabaseUrl) {
+  prismaOptions.datasources = {
+    db: {
+      url: prismaDatabaseUrl,
+    },
+  }
+}
+
+const prisma = new PrismaClient(prismaOptions)
+
+console.log('[worker] boot', {
+  REDIS_URL: Boolean(process.env.REDIS_URL),
+  DATABASE_URL: Boolean(process.env.DATABASE_URL),
+  SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
+  SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+  OPENAI_API_KEY: Boolean(process.env.OPENAI_API_KEY),
+  INDEX_QUEUE,
+})
 
 interface BuildManifestJobData {
   docHash: string
@@ -129,6 +176,9 @@ async function handleBuildManifest(
   queue: Queue,
 ): Promise<void> {
   const data = job.data
+  if (!data?.docHash || !data?.tenderId) {
+    throw new Error('Missing tenderId/docHash')
+  }
   const docHash = data.docHash
   const redis = getRedisClient()
 
@@ -173,7 +223,9 @@ async function handleBuildManifest(
     )
 
     const uploadBucket = data.uploadBucket ?? getSupabaseUploadsBucketName()
-    const zipBuffer = await downloadSupabaseObject(uploadBucket, data.uploadStorageKey)
+    const zipBuffer = await loadUploadBuffer(data.uploadStorageKey, {
+      bucket: uploadBucket,
+    })
     const computedHash = computeDocHashFromBuffer(zipBuffer)
     if (computedHash !== docHash) {
       job.log(`Doc hash mismatch: expected ${docHash}, computed ${computedHash}`)
@@ -705,22 +757,16 @@ async function markArtifactFailed(jobData: BuildManifestJobData, error: Error): 
 }
 
 async function bootstrap(): Promise<void> {
-  const queue = new Queue(INDEX_QUEUE_NAME, {
-    connection: getBullQueueConnection(),
-    defaultJobOptions: {
-      removeOnComplete: true,
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 5000,
-      },
-    },
-  })
+  const queue = indexingQueue
 
   const worker = new Worker(
-    INDEX_QUEUE_NAME,
+    INDEX_QUEUE,
     async (job) => {
-      if (job.name === 'build-manifest') {
+      if (job.name === 'diagnostic-test') {
+        console.log('[worker] diagnostic-test acknowledged', job.id)
+        return { ok: true }
+      }
+      if (job.name === 'index' || job.name === 'build-manifest') {
         await handleBuildManifest(job as Job<BuildManifestJobData>, queue)
         return
       }
@@ -735,19 +781,28 @@ async function bootstrap(): Promise<void> {
       throw new Error(`Unsupported job name: ${job.name}`)
     },
     {
-      connection: getBullQueueConnection(),
+      connection,
       concurrency: 2,
     },
   )
 
-  worker.on('failed', async (job, err) => {
+  worker.on('active', (job) => {
     if (!job) return
-    console.error(`[worker] Job ${job.id} failed:`, err)
+    console.log('[worker] active', job.id, job.name, job.data)
   })
 
-  worker.on('completed', async (job) => {
+  worker.on('progress', (job, progress) => {
     if (!job) return
-    console.info(`[worker] Job ${job.name} (${job.id}) completed`)
+    console.log('[worker] progress', job.id, job.name, progress)
+  })
+
+  worker.on('completed', (job, result) => {
+    if (!job) return
+    console.log('[worker] completed', job.id, job.name, result ?? null)
+  })
+
+  worker.on('failed', (job, err) => {
+    console.error('[worker] failed', job?.id, job?.name, err?.message)
   })
 
   process.on('SIGINT', async () => {

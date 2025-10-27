@@ -1,4 +1,5 @@
-import { openai } from '@/lib/ai/openai'
+import { embedMany } from '@/lib/ai/openai'
+import { FALLBACK_EMBEDDING_DIMS, FALLBACK_EMBEDDING_MODEL } from '@/lib/ai/fallback-embedding'
 import {
   DEFAULT_EMBEDDING_DIMENSION,
   DEFAULT_EMBEDDING_MODEL,
@@ -32,28 +33,27 @@ export async function embedTexts(
     }
   }
 
-  const response = await openai.embeddings.create({
+  const { vectors, dims: resolvedDims, model, isFallback } = await embedMany(texts, {
     model: options.model ?? DEFAULT_EMBEDDING_MODEL,
-    input: texts,
     user: options.user,
   })
 
-  if (!response.data || response.data.length === 0) {
+  if (vectors.length === 0 || resolvedDims <= 0) {
     throw new Error('Embedding API returned no data')
   }
 
-  const dims = response.data[0].embedding.length
+  const dims = resolvedDims || (vectors[0]?.length ?? FALLBACK_EMBEDDING_DIMS)
   const embeddings = new Float32Array(texts.length * dims)
 
-  response.data.forEach((item, index) => {
+  vectors.forEach((vector, index) => {
     const start = index * dims
     for (let i = 0; i < dims; i += 1) {
-      embeddings[start + i] = item.embedding[i] ?? 0
+      embeddings[start + i] = vector[i] ?? 0
     }
   })
 
   return {
-    model: response.model ?? options.model ?? DEFAULT_EMBEDDING_MODEL,
+    model: isFallback ? FALLBACK_EMBEDDING_MODEL : model ?? options.model ?? DEFAULT_EMBEDDING_MODEL,
     dims,
     embeddings,
   }

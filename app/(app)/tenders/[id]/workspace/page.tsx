@@ -53,7 +53,7 @@ export default async function TenderWorkspacePage({ params }: PageProps) {
   const canUpload = session.user.organizationType === "PUBLISHER";
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-100">
+    <div className="flex h-screen flex-col bg-slate-100">
       <div className="border-b border-gray-200 bg-white/90 px-6 py-3 backdrop-blur">
         <Link
           href="/dashboard"

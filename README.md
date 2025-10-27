@@ -103,10 +103,14 @@ A comprehensive tender management platform built with Next.js 14, TypeScript, an
    DATABASE_URL=your-database-url-here
    DIRECT_URL=your-direct-database-url-here
    
+   # Prisma pooling (optional)
+   # Set to true when DATABASE_URL points at a transaction pooler that drops prepared statements
+   PRISMA_DISABLE_PREPARED_STATEMENTS=false
+   
    # Supabase storage
    SUPABASE_URL=your-supabase-project-url
    SUPABASE_ANON_KEY=your-supabase-anon-key
-   SUPABASE_SERVICE_ROLE=your-supabase-service-role-key
+   SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
    SUPABASE_TENDER_UPLOADS_BUCKET=tender-uploads
 
    # Uploads

@@ -307,7 +307,7 @@ export function TenderWorkspaceSurface({
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden xl:grid xl:grid-cols-[280px_minmax(0,1fr)_320px]">
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden xl:grid xl:grid-cols-[280px_minmax(0,1fr)_320px]">
         {/* Tender summary (desktop) */}
         <aside className="hidden border-r border-gray-200 bg-white xl:flex xl:flex-col">
           <div className="border-b border-gray-200 px-5 py-4">
@@ -383,7 +383,7 @@ export function TenderWorkspaceSurface({
         </section>
 
         {/* File explorer */}
-        <aside className="border-t border-gray-200 bg-white xl:order-none xl:border-l xl:border-t-0">
+        <aside className="flex min-h-0 flex-col border-t border-gray-200 bg-white overflow-hidden xl:order-none xl:border-l xl:border-t-0">
           {canUpload && (
             <UploadPanel
               tenderId={tenderId}
@@ -392,13 +392,13 @@ export function TenderWorkspaceSurface({
             />
           )}
 
-          <div className="flex h-[320px] flex-col border-t border-gray-200 xl:h-full xl:border-t-0">
+          <div className="flex h-[320px] min-h-0 flex-col border-t border-gray-200 overflow-hidden xl:h-full xl:border-t-0">
             {filteredTree ? (
               <FileTree
                 tree={filteredTree}
                 selectedId={selectedNode?.id}
                 onSelect={handleSelectNode}
-                className="flex-1"
+                className="flex-1 overflow-auto"
               />
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-gray-600">

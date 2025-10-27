@@ -14,8 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { generateCoverLetter } from "@/lib/mocks/ai";
-
 interface CoverLetterTabProps {
   tenderId: string;
 }
@@ -33,18 +31,33 @@ export function CoverLetterTab({ tenderId }: CoverLetterTabProps) {
   });
 
   const handleGenerate = async () => {
-    if (!formData.company.trim()) {
-      alert("Please enter your company name");
-      return;
-    }
-
     setIsGenerating(true);
     try {
-      const result = await generateCoverLetter({
-        tenderId,
-        ...formData,
-      });
-      setLetter(result);
+      const response = await fetch(
+        `/api/tenders/${tenderId}/ai/cover-letter`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tone: formData.tone === "friendly" ? "concise" : "professional",
+            length:
+              formData.length === "concise"
+                ? "short"
+                : formData.length === "detailed"
+                ? "detailed"
+                : "standard",
+            customNotes: formData.strengths,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`Cover letter API returned ${response.status}`);
+      }
+
+      const payload = await response.json().catch(() => ({}));
+      setLetter(payload?.letterMarkdown ?? "");
+      setCopied(false);
     } catch (error) {
       console.error("Failed to generate cover letter:", error);
     } finally {
@@ -66,11 +79,11 @@ export function CoverLetterTab({ tenderId }: CoverLetterTabProps) {
           <div className="space-y-3">
             <div>
               <Label htmlFor="company" className="text-xs font-medium">
-                Company Name *
+                Company Name (optional)
               </Label>
               <Input
                 id="company"
-                placeholder="Your company name"
+                placeholder="Auto from profile (optional override)"
                 value={formData.company}
                 onChange={(e) => setFormData({ ...formData, company: e.target.value })}
                 className="mt-1 h-8 text-xs"
@@ -164,6 +177,9 @@ export function CoverLetterTab({ tenderId }: CoverLetterTabProps) {
                 </>
               )}
             </Button>
+            <p className="text-[10px] text-gray-500">
+              Cover Letter uses tender details only (no PDFs).
+            </p>
           </div>
 
           {/* Preview */}
