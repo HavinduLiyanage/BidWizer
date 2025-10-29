@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -152,13 +153,15 @@ model Upload {
   mimeType       String?
   url            String?
   storageKey     String?
-  orgId          String?
+  metadata       Json?
+  orgId          String
   error          String?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   tenderId       String
   isAdvertisement Boolean        @default(false)
   extractedFiles ExtractedFile[]
+  organization   Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   tender         Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
 
   @@index([tenderId])
@@ -177,11 +180,15 @@ model ExtractedFile {
   updatedAt DateTime @updatedAt
   tenderId  String
   uploadId  String
+  docHash   String   @unique
+  storageBucket String?
+  storageKey String?
   chunks    Chunk[]
   tender    Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
   upload    Upload   @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 
   @@index([tenderId, uploadId, page])
+  @@index([docHash])
   @@map("extracted_files")
 }
 

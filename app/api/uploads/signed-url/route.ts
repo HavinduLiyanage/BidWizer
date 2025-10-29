@@ -15,6 +15,7 @@ const STORAGE_KEY_PREFIX = 'tenders'
 const DEFAULT_BUCKET_NAME = 'tender-uploads'
 const DEFAULT_MAX_UPLOAD_SIZE_MB = 500
 const MAX_UPLOAD_SIZE_CAP_MB = 2048
+const SUPABASE_DEFAULT_OBJECT_LIMIT_BYTES = 50 * 1024 * 1024
 
 const FILE_KIND_BY_EXTENSION: Record<string, UploadKind> = {
   pdf: UploadKind.pdf,
@@ -63,6 +64,34 @@ function resolveMaxUploadSizeBytes(): number {
 }
 
 const MAX_UPLOAD_SIZE_BYTES = resolveMaxUploadSizeBytes()
+
+function resolveSupabaseObjectLimitBytes(): number {
+  const rawBytes = readEnvVar('SUPABASE_OBJECT_MAX_BYTES')
+  if (rawBytes && rawBytes.length > 0) {
+    const numeric = Number(rawBytes)
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      return numeric
+    }
+    console.warn(
+      `[uploads] Ignoring invalid SUPABASE_OBJECT_MAX_BYTES value "${rawBytes}", falling back to default`,
+    )
+  }
+
+  const rawMb = readEnvVar('SUPABASE_OBJECT_MAX_MB')
+  if (rawMb && rawMb.length > 0) {
+    const numeric = Number(rawMb)
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      return numeric * 1024 * 1024
+    }
+    console.warn(
+      `[uploads] Ignoring invalid SUPABASE_OBJECT_MAX_MB value "${rawMb}", falling back to default`,
+    )
+  }
+
+  return SUPABASE_DEFAULT_OBJECT_LIMIT_BYTES
+}
+
+const SUPABASE_OBJECT_LIMIT_BYTES = resolveSupabaseObjectLimitBytes()
 
 const signedUrlSchema = z.object({
   tenderId: z.string().min(1, 'tenderId is required'),
@@ -165,8 +194,21 @@ export async function POST(request: NextRequest) {
 
     let uploadUrl: string | undefined
     let storageKey: string | undefined
+    const exceedsSupabaseLimit =
+      SUPABASE_OBJECT_LIMIT_BYTES > 0 && size > SUPABASE_OBJECT_LIMIT_BYTES
+    const supabaseEligible = Boolean(supabaseUrl && supabaseServiceRole && !exceedsSupabaseLimit)
 
-    if (supabaseUrl && supabaseServiceRole) {
+    if (supabaseUrl && supabaseServiceRole && exceedsSupabaseLimit) {
+      console.warn(
+        `[uploads] Switching upload ${uploadId} to mock storage because size (${Math.floor(
+          size / (1024 * 1024),
+        )} MB) exceeds Supabase limit (${Math.floor(
+          SUPABASE_OBJECT_LIMIT_BYTES / (1024 * 1024),
+        )} MB)`,
+      )
+    }
+
+    if (supabaseEligible) {
       try {
         let supabaseClient: ReturnType<typeof createSupabaseServiceClient> | undefined
         try {
@@ -195,6 +237,10 @@ export async function POST(request: NextRequest) {
         console.warn('Unexpected Supabase error, falling back to mock storage:', error)
         storageKey = undefined
       }
+    } else if (supabaseUrl && supabaseServiceRole) {
+      console.warn(
+        `[uploads] Supabase client available but upload ${uploadId} is ineligible (size ${size} bytes, limit ${SUPABASE_OBJECT_LIMIT_BYTES} bytes). Using mock storage.`,
+      )
     }
 
     if (!uploadUrl || !storageKey) {

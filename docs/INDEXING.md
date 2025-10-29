@@ -79,17 +79,16 @@ Embeddings are kept in Float16 to reduce storage requirements by ~50%.
 
 Pipeline is orchestrated by BullMQ (`tender-indexing` queue) and Redis for coordination.
 
-1. **Queue** (`build-manifest` job) – Acquire Redis lock (`lock:index:{docHash}`), download the source ZIP, and expand PDF entries into a workspace under `os.tmpdir()/bidwizer-index/{docHash}`.
-2. **Embed** (`embed-batch` job) – Extract text, chunk pages, call OpenAI embeddings in batches (default 80 chunks), track progress, and persist manifest/chunks/embeddings/names locally.
-3. **Finalize** (`finalize-artifact` job) – Pack the tarball, gzip compress, upload to Supabase, and update the `IndexArtifact` record in Postgres.
+1. **Queue** (`index` job) – Acquire Redis lock (`lock:index:{docHash}`) and enqueue `{ tenderId, fileId, docHash }` for the selected PDF.
+2. **Worker** – Download the PDF from Supabase using the stored bucket/key, extract page text, split it into ~1500-character chunks (with overlap), embed via OpenAI, and upsert the chunk rows in Postgres.
+3. **Finalize** – Update the related `index_artifact` row with chunk counts, bytes, and status `READY`, while streaming progress snapshots to Redis.
 
 Redis keys:
 
 - `lock:index:{docHash}` – Prevent duplicate builds (30-minute TTL with heartbeat).
 - `progress:index:{docHash}` – JSON payload describing the phase, percent, and ETA (12-hour TTL).
-- `resume:index:{docHash}` – Last processed file/page for opportunistic resume.
 
-Progress phases: `queued → manifest → embedding → finalize → ready` (or `failed`).
+Progress phases: `queued → manifest → embedding → ready` (or `failed`).
 
 ## Database
 
@@ -118,7 +117,7 @@ Statuses: `BUILDING`, `READY`, `FAILED`.
 
 | Route | Method | Description |
 | --- | --- | --- |
-| `/api/tenders/{tenderId}/docs/{docHash}/ensure-index` | `POST` | Authenticate + queue/build artifact. Returns ready/building status. Accepts `{ uploadId, forceRebuild? }`. |
+| `/api/tenders/{tenderId}/docs/{docHash}/ensure-index` | `POST` | Authenticate + queue per-file indexing. Returns ready/building status. Accepts `{ forceRebuild? }`. |
 | `/api/tenders/{tenderId}/docs/{docHash}/progress` | `GET` | Fetch current progress snapshot (or READY/FAILED metadata). |
 | `/api/tenders/{tenderId}/docs/{docHash}/ask` | `POST` | Perform semantic question answering on the artifact. Body: `{ question, topK?, maxContextChars? }`. |
 | `/api/tenders/{tenderId}/docs/{docHash}/release` | `POST` | Release cached artifact from in-memory LRU store. |
@@ -153,22 +152,20 @@ The worker uses `ts-node` with the TypeScript source in `server/workers/indexWor
 
 - Locks auto-expire; the worker heartbeats every 25 seconds.
 - Progress snapshots survive up to 12 hours; clients can poll `/progress` to surface live updates.
-- Resume payload records the last processed file/page. Future enhancement can restart from this state if the build crashes mid-run.
 - On failure the artifact row is marked `FAILED`, the lock is released, and workspace files are cleaned up.
 
 ## Client Workflow
 
-1. Call `POST /ensure-index` with an `uploadId` (the ZIP/PDF upload). Any docHash placeholder is accepted; the response includes the canonical hash.
-2. Poll `/progress` until status becomes `ready` (or subscribe to SSE/WebSocket in the UI).
-3. When ready, call `/ask` with user prompts. Reuse `docHash` for subsequent users/documents.
-4. Optionally call `/release` after idle periods to free server memory (a background LRU eviction handles normal lifecycle).
+1. Load the tender document tree/preview to obtain the extracted file’s `docHash` and `fileId`.
+2. Call `POST /ensure-index` for that `{tenderId, docHash}` (optionally passing `{ forceRebuild: true }`). The response confirms whether indexing was queued or already ready.
+3. Poll `/progress` until status becomes `ready` (or subscribe to live updates).
+4. Use `/ask` or `/brief` with the same `docHash` (and `fileId` for targeting). Optionally call `/release` after idle periods to free cached artifacts.
 
 ## Testing Checklist
 
-- Upload a large (300–400 MB) ZIP → `ensure-index` queues manifest build, completes, and stores artifact in Supabase.
-- A second user hitting the same document returns `status: "ready"` immediately (no rebuild).
-- `/ask` responds in <1 s once cached, with citations referencing source pages.
-- Postgres only grows via `index_artifacts`; no `chunks` table usage.
-- Supabase bucket contains one artifact per docHash (`index.v1.tar.zst`).
+- Upload a large ZIP containing multiple PDFs → selecting any PDF queues an `index` job, emits per-file logs, and stores chunk rows for that file in Postgres.
+- Re-selecting the same file returns `status: "ready"` immediately (no rebuild).
+- `/ask` responds in <1 s once chunks exist, with citations referencing source pages.
+- The related `index_artifact` row reports accurate `totalChunks`/`totalPages`, and Supabase holds the extracted PDF under `tenders/{tenderId}/extracted/{uploadId}/`.
 
 Refer to the worker logs and Redis progress keys for diagnosing stuck or failed builds.

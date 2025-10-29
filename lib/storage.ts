@@ -6,6 +6,8 @@ import { readEnvVar } from '@/lib/env'
 
 const DEFAULT_UPLOADS_BUCKET = 'tender-uploads'
 const DEFAULT_INDEX_BUCKET = 'tender-indexes'
+const bucketEnsurePromises = new Map<string, Promise<void>>()
+const DESIRED_BUCKET_FILE_SIZE_LIMIT = 524_288_000 // 500 MB
 
 type UploadBody =
   | File
@@ -60,6 +62,96 @@ export function getSupabaseIndexBucketName(): string {
   )
 }
 
+function isBucketMissing(message: string | undefined): boolean {
+  if (!message) return false
+  const normalized = message.toLowerCase()
+  return normalized.includes('not found') || normalized.includes('does not exist')
+}
+
+function isFileSizeLimitConstraint(message: string | undefined): boolean {
+  if (!message) return false
+  return message.toLowerCase().includes('maximum allowed size')
+}
+
+async function ensureBucketExists(client: SupabaseClient, bucket: string): Promise<void> {
+  const existing = bucketEnsurePromises.get(bucket)
+  if (existing) {
+    await existing
+    return
+  }
+
+  const ensurePromise = (async () => {
+    const { data, error } = await client.storage.getBucket(bucket)
+
+    if (data) {
+      const sizeLimit = data.file_size_limit
+      const currentLimit =
+        typeof sizeLimit === 'number' && Number.isFinite(sizeLimit) ? sizeLimit : null
+      const desiredLimit = DESIRED_BUCKET_FILE_SIZE_LIMIT
+      const shouldUpdate =
+        desiredLimit > 0
+          ? currentLimit !== desiredLimit
+          : currentLimit !== null && currentLimit > 0
+
+      if (shouldUpdate) {
+        const { error: updateError } = await client.storage.updateBucket(bucket, {
+          public: data.public,
+          fileSizeLimit: desiredLimit,
+          allowedMimeTypes: data.allowed_mime_types ?? undefined,
+        })
+
+        if (updateError) {
+          if (isFileSizeLimitConstraint(updateError.message)) {
+            console.warn(
+              `[storage] Unable to increase file size limit for bucket ${bucket}: ${updateError.message}`,
+            )
+          } else {
+            throw new Error(
+              `Failed to update Supabase bucket ${bucket} limits: ${updateError.message}`,
+            )
+          }
+        }
+      }
+
+      return
+    }
+
+    if (error && !isBucketMissing(error.message)) {
+      throw new Error(`Failed to verify Supabase bucket ${bucket}: ${error.message}`)
+    }
+
+    const desiredOptions =
+      DESIRED_BUCKET_FILE_SIZE_LIMIT > 0
+        ? {
+            public: false,
+            fileSizeLimit: DESIRED_BUCKET_FILE_SIZE_LIMIT,
+          }
+        : { public: false }
+
+    let { error: createError } = await client.storage.createBucket(bucket, desiredOptions)
+
+    if (createError && isFileSizeLimitConstraint(createError.message)) {
+      console.warn(
+        `[storage] Unable to enforce file size limit for new bucket ${bucket}: ${createError.message}. Retrying without explicit limit.`,
+      )
+      ;({ error: createError } = await client.storage.createBucket(bucket, { public: false }))
+    }
+
+    if (createError && !createError.message?.toLowerCase().includes('already exists')) {
+      throw new Error(`Failed to create Supabase bucket ${bucket}: ${createError.message}`)
+    }
+  })()
+
+  bucketEnsurePromises.set(bucket, ensurePromise)
+
+  try {
+    await ensurePromise
+  } catch (error) {
+    bucketEnsurePromises.delete(bucket)
+    throw error
+  }
+}
+
 export async function uploadSupabaseObject(
   bucket: string,
   storageKey: string,
@@ -67,14 +159,24 @@ export async function uploadSupabaseObject(
   options: { contentType?: string; cacheControl?: string } = {},
 ): Promise<void> {
   const client = createSupabaseServiceClient()
+  await ensureBucketExists(client, bucket)
   const payload =
     body instanceof ArrayBuffer || Buffer.isBuffer(body) ? body : await toArrayBuffer(body)
 
-  const { error } = await client.storage.from(bucket).upload(storageKey, payload, {
-    upsert: true,
-    cacheControl: options.cacheControl ?? '3600',
-    contentType: options.contentType ?? 'application/octet-stream',
-  })
+  const upload = async () =>
+    client.storage.from(bucket).upload(storageKey, payload, {
+      upsert: true,
+      cacheControl: options.cacheControl ?? '3600',
+      contentType: options.contentType ?? 'application/octet-stream',
+    })
+
+  let { error } = await upload()
+
+  if (error && isBucketMissing(error.message)) {
+    bucketEnsurePromises.delete(bucket)
+    await ensureBucketExists(client, bucket)
+    ;({ error } = await upload())
+  }
 
   if (error) {
     throw new Error(

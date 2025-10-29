@@ -15,6 +15,67 @@ const paramsSchema = z.object({
   tenderId: z.string().min(1, 'Tender id is required'),
 })
 
+export async function GET(
+  _request: NextRequest,
+  context: { params: { tenderId: string } }
+) {
+  try {
+    const session = await getServerSession(authOptions)
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { tenderId } = paramsSchema.parse(context.params)
+
+    const tender = await db.tender.findFirst({
+      where: { id: tenderId },
+      include: {
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            logo: true,
+          },
+        },
+      },
+    })
+
+    if (!tender) {
+      return NextResponse.json({ error: 'Tender not found' }, { status: 404 })
+    }
+
+    // Check if user has access to this tender (either as publisher or bidder)
+    const membership = await db.orgMember.findFirst({
+      where: { userId: session.user.id },
+      include: {
+        organization: true,
+      },
+    })
+
+    if (!membership) {
+      return NextResponse.json({ error: 'User not associated with any organization' }, { status: 403 })
+    }
+
+    // If the user is a member of the organization that owns the tender, they can access it
+    if (membership.organizationId !== tender.organizationId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    return NextResponse.json({
+      id: tender.id,
+      title: tender.title,
+      description: tender.description,
+      category: tender.category,
+      status: tender.status,
+      organization: tender.organization,
+    })
+  } catch (error) {
+    console.error('Tender fetch error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
 export async function PATCH(
   request: NextRequest,
   context: { params: { tenderId: string } }

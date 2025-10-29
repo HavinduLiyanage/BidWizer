@@ -34,6 +34,7 @@ export function useEnsureDocIndex(
 
     let cancelled = false
     let cachedFileId: string | undefined
+    let cachedDocHash: string | undefined
 
     const pollProgress = async (
       docHash: string,
@@ -64,6 +65,7 @@ export function useEnsureDocIndex(
     const resolvePreview = async (): Promise<{
       uploadId: string
       fileId: string
+      docHash: string
     }> => {
       const runFetch = async (endpoint: string) => {
         const response = await fetch(endpoint, { cache: 'no-store' })
@@ -87,11 +89,22 @@ export function useEnsureDocIndex(
 
       const apply = (payload: {
         id?: string
+        docHash?: string | null
+        metadata?: Record<string, unknown> | null
         sourceUpload?: { id?: string | null } | null
       }) => {
         const uploadId = payload?.sourceUpload?.id
         if (!uploadId) {
           throw new Error('Selected file has no source upload')
+        }
+        const rawDocHash =
+          typeof payload?.docHash === 'string' && payload.docHash.length > 0
+            ? payload.docHash
+            : typeof payload?.metadata?.docHash === 'string'
+            ? String(payload.metadata.docHash)
+            : null
+        if (!rawDocHash) {
+          throw new Error('Selected file is missing a document hash')
         }
         const identifier =
           typeof payload?.id === 'string' && payload.id.length > 0
@@ -103,7 +116,7 @@ export function useEnsureDocIndex(
         if (!fileId) {
           throw new Error('Unable to resolve file identifier')
         }
-        return { uploadId, fileId }
+        return { uploadId, fileId, docHash: rawDocHash }
       }
 
       try {
@@ -129,23 +142,28 @@ export function useEnsureDocIndex(
       try {
         const preview = await resolvePreview()
         cachedFileId = preview.fileId
+        cachedDocHash = preview.docHash
 
         const ensureRes = await fetch(
-          `/api/tenders/${tenderId}/docs/placeholder/ensure-index`,
+          `/api/tenders/${tenderId}/docs/${encodeURIComponent(preview.docHash)}/ensure-index`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uploadId: preview.uploadId }),
+            body: JSON.stringify({}),
           },
         )
         if (!ensureRes.ok) {
           throw new Error('Failed to ensure index')
         }
         const ensure = await ensureRes.json()
-        const docHash: string | undefined = ensure?.docHash
+        const docHash: string | undefined =
+          typeof ensure?.docHash === 'string' && ensure.docHash.length > 0
+            ? ensure.docHash
+            : cachedDocHash
         if (!docHash) {
           throw new Error('Index response missing doc hash')
         }
+        cachedDocHash = docHash
 
         const ready = await pollProgress(docHash, cachedFileId)
         if (!ready && !cancelled) {
@@ -174,6 +192,7 @@ export function useEnsureDocIndex(
         if (!cancelled) {
           setState({
             status: 'error',
+            docHash: cachedDocHash,
             fileId: cachedFileId,
             message: (error as Error).message ?? 'Unknown error',
           })

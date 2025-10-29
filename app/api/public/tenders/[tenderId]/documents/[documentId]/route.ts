@@ -103,6 +103,9 @@ export async function GET(
         filename: true,
         content: true,
         metadata: true,
+        docHash: true,
+        storageBucket: true,
+        storageKey: true,
         createdAt: true,
         updatedAt: true,
         tenderId: true,
@@ -155,6 +158,7 @@ export async function GET(
       )}/stream`;
       const payload: TenderDocumentPreview = {
         id: `file:${extracted.id}`,
+        docHash: extracted.docHash ?? null,
         name: filename,
         path: inferredPath,
         size,

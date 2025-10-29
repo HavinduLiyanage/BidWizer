@@ -4,7 +4,6 @@ import SiteHeader from '@/components/site-header'
 import Hero from '@/components/hero'
 import HowItWorks from '@/components/how-it-works'
 import AITools from '@/components/ai-tools'
-import CustomerStories from '@/components/customer-stories'
 import SiteFooter from '@/components/site-footer'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
@@ -25,7 +24,6 @@ export default function Home() {
         <Hero />
         <HowItWorks />
         <AITools />
-        <CustomerStories />
         
         {/* Final CTA */}
         <section className="bg-gradient-to-br from-slate-50 to-blue-50 py-20">

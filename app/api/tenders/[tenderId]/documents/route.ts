@@ -174,6 +174,7 @@ export async function GET(
                 id: true,
                 filename: true,
                 metadata: true,
+                docHash: true,
               },
             },
           },
@@ -227,6 +228,12 @@ export async function GET(
           const segments = normalizeSegments(pathValue ?? undefined);
           const filename =
             segments[segments.length - 1] ?? extracted.filename ?? "Document";
+          const docHash =
+            extracted.docHash && extracted.docHash.length > 0
+              ? extracted.docHash
+              : typeof metadata?.["docHash"] === "string"
+              ? (metadata["docHash"] as string)
+              : null;
 
           const folderSegments = segments.slice(0, -1);
           const pathSegments =
@@ -237,6 +244,7 @@ export async function GET(
             name: filename,
             type: "file",
             path: `/${[...pathSegments, filename].join("/")}`,
+            docHash,
             size: formatBytes(sizeValue),
             ext: extractExtension(filename),
           };
@@ -259,6 +267,10 @@ export async function GET(
           name: filename,
           type: "file",
           path: `/${filename}`,
+          docHash:
+            extracted?.docHash && extracted.docHash.length > 0
+              ? extracted.docHash
+              : null,
           size: formatBytes(upload.size),
           ext: extractExtension(filename),
         };
@@ -285,4 +297,3 @@ export async function GET(
     );
   }
 }
-

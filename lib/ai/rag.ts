@@ -53,7 +53,7 @@ export async function retrieveChunksFromFile(opts: {
   scanCap?: number
 }) {
   const {
-    tenderId,
+    tenderId: _tenderId,
     fileId,
     question,
     k = DEFAULT_TOP_K,
@@ -67,7 +67,7 @@ export async function retrieveChunksFromFile(opts: {
   }
 
   const rows = await db.chunk.findMany({
-    where: { tenderId, extractedFileId: fileId },
+    where: { extractedFileId: fileId },
     select: {
       id: true,
       content: true,

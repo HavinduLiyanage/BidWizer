@@ -1,16 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TrendingUp, Eye, Download, MessageSquare } from "lucide-react";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { mockAnalytics, mockTenders } from "@/lib/mock-data";
+import { mockAnalytics } from "@/lib/mock-data";
+
+interface Tender {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+}
 
 export default function TenderAnalyticsPage({ params }: { params: { id: string } }) {
   const [period, setPeriod] = useState<"7days" | "30days">("7days");
-  const tender = mockTenders.find((t) => t.id === params.id) || mockTenders[0];
+  const [tender, setTender] = useState<Tender | null>(null);
   const analytics = mockAnalytics;
+
+  useEffect(() => {
+    async function fetchTender() {
+      try {
+        const response = await fetch(`/api/tenders/${params.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          setTender(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch tender:", error);
+      }
+    }
+    
+    fetchTender();
+  }, [params.id]);
 
   const kpis = [
     {
@@ -55,7 +78,7 @@ export default function TenderAnalyticsPage({ params }: { params: { id: string }
         <div className="container mx-auto px-4 md:px-6">
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              {tender.title}
+              {tender?.title || "Loading..."}
             </h1>
             <div className="flex gap-2">
               <button

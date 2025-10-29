@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
 import { Input } from "@/components/ui/input";
-import { mockTenders } from "@/lib/mock-data";
 import { TenderCard } from "@/components/tenders/tender-card";
 import { FilterDrawer } from "@/components/tenders/filter-drawer";
 import { TenderSkeleton } from "@/components/tenders/tender-skeleton";
@@ -97,7 +96,7 @@ export default function TendersPage() {
   const [sortBy, setSortBy] = useState("deadline");
   const [showClosed, setShowClosed] = useState(false);
   const [previewTender, setPreviewTender] = useState<Tender | null>(null);
-  const [tenders, setTenders] = useState<Tender[]>(mockTenders);
+  const [tenders, setTenders] = useState<Tender[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -123,7 +122,7 @@ export default function TendersPage() {
           ? payload.tenders.map(mapTender)
           : [];
 
-        if (isMounted && items.length > 0) {
+        if (isMounted) {
           setTenders(items);
         }
       } catch (error) {
@@ -135,7 +134,7 @@ export default function TendersPage() {
           setFetchError(
             error instanceof Error ? error.message : "Unable to load tenders"
           );
-          setTenders(mockTenders);
+          setTenders([]);
         }
       } finally {
         if (isMounted) {

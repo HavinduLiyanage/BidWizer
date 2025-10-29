@@ -5,40 +5,56 @@ import { z } from 'zod'
 
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { loadUploadBuffer } from '@/lib/uploads'
-import {
-  computeDocHashFromBuffer,
-  INDEX_ARTIFACT_VERSION,
-} from '@/lib/indexing'
+import { INDEX_ARTIFACT_VERSION } from '@/lib/indexing'
 import { ensureTenderAccess } from '@/lib/indexing/access'
-import { getSupabaseUploadsBucketName } from '@/lib/storage'
+import { indexingQueue, INDEX_QUEUE } from '@/lib/queue'
 import {
   buildProgressSnapshot,
   getRedisClient,
   writeIndexProgress,
 } from '@/lib/redis'
-import { indexingQueue, INDEX_QUEUE } from '@/lib/queue'
 
 const paramsSchema = z.object({
   tenderId: z.string().min(1),
   docHash: z.string().min(1),
 })
 
-const bodySchema = z.object({
-  uploadId: z.string().min(1, 'uploadId is required'),
-  forceRebuild: z.boolean().optional(),
-})
+const bodySchema = z
+  .object({
+    forceRebuild: z.boolean().optional(),
+  })
+  .default({})
 
-export async function POST(request: NextRequest, context: { params: { tenderId: string; docHash: string } }) {
+type JsonRecord = Record<string, unknown>
+
+function resolveApproxBytes(metadata: JsonRecord | null, fallbackSize?: number | null): number {
+  if (metadata && typeof metadata.size === 'number' && Number.isFinite(metadata.size)) {
+    return Math.max(0, metadata.size)
+  }
+  if (typeof fallbackSize === 'number' && Number.isFinite(fallbackSize)) {
+    return Math.max(0, fallbackSize)
+  }
+  return 0
+}
+
+export async function POST(
+  request: NextRequest,
+  context: { params: { tenderId: string; docHash: string } },
+) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { tenderId, docHash: docHashParam } = paramsSchema.parse(context.params)
-    console.log('[ensure-index] hit', { tenderId, docHash: docHashParam })
-    const body = bodySchema.parse(await request.json())
+    const { tenderId, docHash } = paramsSchema.parse(context.params)
+    console.log('[ensure-index] per-file request', { tenderId, docHash })
+
+    const rawBody =
+      request.headers.get('content-type')?.includes('application/json') === true
+        ? await request.json().catch(() => ({}))
+        : {}
+    const body = bodySchema.parse(rawBody ?? {})
 
     let tenderAccess
     try {
@@ -50,49 +66,57 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
       throw error
     }
 
-    const upload = await db.upload.findUnique({
-      where: { id: body.uploadId },
+    const extractedFile = await db.extractedFile.findUnique({
+      where: { docHash },
       select: {
         id: true,
-        storageKey: true,
-        status: true,
         tenderId: true,
-        size: true,
+        uploadId: true,
+        docHash: true,
+        metadata: true,
+        storageBucket: true,
+        storageKey: true,
+        upload: {
+          select: {
+            id: true,
+            storageKey: true,
+            size: true,
+            tenderId: true,
+          },
+        },
       },
     })
 
-    if (!upload || upload.tenderId !== tenderId) {
-      return NextResponse.json({ error: 'Upload not found' }, { status: 404 })
+    if (!extractedFile || extractedFile.tenderId !== tenderId) {
+      return NextResponse.json({ error: 'Document not found' }, { status: 404 })
     }
 
-    if (!upload.storageKey) {
-      return NextResponse.json({ error: 'Upload does not have a storage key' }, { status: 400 })
+    if (!extractedFile.storageKey || !extractedFile.storageBucket) {
+      return NextResponse.json(
+        { error: 'Document is missing storage metadata' },
+        { status: 422 },
+      )
     }
 
-    const payloadBuffer = await loadUploadBuffer(upload.storageKey)
-    const computedHash = computeDocHashFromBuffer(payloadBuffer)
-    const docHash = computedHash
-    const hashMismatch = docHash !== docHashParam
+    const metadata =
+      extractedFile.metadata && typeof extractedFile.metadata === 'object'
+        ? (extractedFile.metadata as JsonRecord)
+        : null
+    const approxBytes = resolveApproxBytes(metadata, extractedFile.upload?.size ?? null)
 
     const existingArtifact = await db.indexArtifact.findUnique({
       where: { docHash },
     })
-    console.log(
-      '[ensure-index] artifact?',
-      existingArtifact
-        ? {
-            id: existingArtifact.id,
-            status: existingArtifact.status,
-            updatedAt: existingArtifact.updatedAt.toISOString(),
-          }
-        : 'none',
-    )
 
     if (existingArtifact && existingArtifact.status === IndexArtifactStatus.READY && !body.forceRebuild) {
-      console.log('[ensure-index] already READY')
+      console.log('[ensure-index] already READY', {
+        docHash,
+        artifactId: existingArtifact.id,
+      })
       return NextResponse.json({
         status: 'READY',
         docHash,
+        fileId: extractedFile.id,
         artifact: {
           id: existingArtifact.id,
           storageKey: existingArtifact.storageKey,
@@ -100,12 +124,14 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
           version: existingArtifact.version,
           totalChunks: existingArtifact.totalChunks,
         },
-        mismatch: hashMismatch ? { expected: docHashParam, actual: docHash } : undefined,
       })
     }
 
     const artifactVersion = existingArtifact?.version ?? INDEX_ARTIFACT_VERSION
-    const preservedStorageKey = existingArtifact?.storageKey ?? ''
+    const storageKey =
+      existingArtifact?.storageKey ??
+      extractedFile.storageKey ??
+      `extracted:${extractedFile.id}`
 
     let artifact = existingArtifact
     if (!artifact) {
@@ -116,19 +142,18 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
           tenderId: tenderAccess.tenderId,
           version: artifactVersion,
           status: IndexArtifactStatus.BUILDING,
-          storageKey: preservedStorageKey,
+          storageKey,
           totalChunks: 0,
           totalPages: 0,
-          bytesApprox: upload.size ?? 0,
+          bytesApprox: approxBytes,
         },
       })
-      console.log('[ensure-index] created artifact row', { id: artifact.id })
-    }
-
-    const shouldResetStatus =
-      artifact.status !== IndexArtifactStatus.BUILDING || Boolean(body.forceRebuild)
-
-    if (shouldResetStatus) {
+      console.log('[ensure-index] created artifact', { artifactId: artifact.id, docHash })
+    } else if (
+      artifact.status !== IndexArtifactStatus.BUILDING ||
+      artifact.bytesApprox !== approxBytes ||
+      body.forceRebuild
+    ) {
       artifact = await db.indexArtifact.update({
         where: { id: artifact.id },
         data: {
@@ -136,29 +161,31 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
           version: artifactVersion,
           totalChunks: 0,
           totalPages: 0,
-          bytesApprox: upload.size ?? 0,
-          storageKey: preservedStorageKey,
+          bytesApprox: approxBytes,
+          storageKey,
         },
       })
-      console.log('[ensure-index] marked BUILDING', { id: artifact.id })
+      console.log('[ensure-index] reset artifact to BUILDING', {
+        artifactId: artifact.id,
+        docHash,
+      })
     }
 
     const redis = getRedisClient()
     const lockKey = `lock:index:${docHash}`
     let lockValue = await redis.get(lockKey)
-    console.log('[ensure-index] lock?', lockValue)
 
     if (lockValue && !body.forceRebuild) {
-      console.log('[ensure-index] already building (locked)')
+      console.log('[ensure-index] already building (locked)', { docHash })
       return NextResponse.json({
         status: 'BUILDING',
         docHash,
-        mismatch: hashMismatch ? { expected: docHashParam, actual: docHash } : undefined,
+        fileId: extractedFile.id,
       })
     }
 
     if (lockValue && body.forceRebuild) {
-      console.log('[ensure-index] forceRebuild clearing lock')
+      console.log('[ensure-index] forceRebuild clearing lock', { docHash })
       await redis.del(lockKey)
       lockValue = null
     }
@@ -174,7 +201,7 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
         percent: 1,
         batchesDone: 0,
         totalBatches: 0,
-        message: 'Index build queued',
+        message: 'Index build queued for file',
       }),
     )
 
@@ -182,11 +209,8 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
       'index',
       {
         tenderId,
+        fileId: extractedFile.id,
         docHash,
-        orgId: tenderAccess.organizationId,
-        uploadStorageKey: upload.storageKey,
-        uploadBucket: getSupabaseUploadsBucketName(),
-        artifactVersion,
       },
       {
         removeOnComplete: 100,
@@ -196,17 +220,25 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
       },
     )
 
-    console.log('[ensure-index] enqueued', {
+    console.log('[ensure-index] per-file enqueue', {
+      jobId: job.id,
       tenderId,
+      fileId: extractedFile.id,
       docHash,
       queue: INDEX_QUEUE,
-      jobId: job.id,
     })
 
     return NextResponse.json({
       status: 'ENQUEUED',
       docHash,
-      mismatch: hashMismatch ? { expected: docHashParam, actual: docHash } : undefined,
+      fileId: extractedFile.id,
+      artifact: {
+        id: artifact.id,
+        storageKey: artifact.storageKey,
+        version: artifact.version,
+        totalChunks: artifact.totalChunks,
+        updatedAt: artifact.updatedAt.toISOString(),
+      },
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -216,7 +248,7 @@ export async function POST(request: NextRequest, context: { params: { tenderId: 
       )
     }
 
-    console.error('[indexing] Failed to ensure index:', error)
+    console.error('[ensure-index] failed to enqueue per-file job:', error)
     return NextResponse.json({ error: 'Failed to ensure index' }, { status: 500 })
   }
 }

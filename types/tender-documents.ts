@@ -3,6 +3,7 @@ export interface TenderDocumentNode {
   name: string;
   type: "folder" | "file";
   path: string;
+  docHash?: string | null;
   size?: string;
   ext?: string;
   children?: TenderDocumentNode[];
@@ -16,6 +17,7 @@ export interface TenderDocumentPreview {
   mimeType?: string | null;
   downloadUrl?: string | null;
   streamUrl?: string | null;
+  docHash?: string | null;
   uploadedAt?: string;
   updatedAt?: string;
   metadata?: Record<string, unknown> | null;
