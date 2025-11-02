@@ -2,10 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcrypt'
 import { z } from 'zod'
 import crypto from 'crypto'
-import { PLANS, type PlanTier } from '@/lib/entitlements'
+import { PLAN_SPECS, type PlanTier, DEFAULT_TRIAL_DAYS } from '@/lib/entitlements'
 import { db } from '@/lib/db'
 import { sendInvitationEmail, sendVerificationEmail } from '@/lib/email'
-const PLAN_OPTIONS = ['Basic', 'Team', 'ENTERPRISE'] as const satisfies readonly PlanTier[]
+import { env } from '@/lib/env'
+const PLAN_OPTIONS = ['FREE', 'STANDARD', 'PREMIUM', 'ENTERPRISE'] as const satisfies readonly PlanTier[]
+
+function parsePlanTier(value: string | null | undefined): PlanTier | null {
+  if (!value) {
+    return null
+  }
+  const upper = value.toUpperCase()
+  return PLAN_OPTIONS.includes(upper as PlanTier) ? (upper as PlanTier) : null
+}
 
 const teamMemberSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -62,14 +71,15 @@ const bidderRegistrationSchema = z
   })
   .superRefine((data, ctx) => {
     const { plan, teamMembers } = data.team
-    const seatsForPlan = PLANS[plan].seats ?? 1
+    const planSpec = PLAN_SPECS[plan]
+    const seatsForPlan = planSpec.seats ?? 1
     const availableSeats = Math.max(seatsForPlan - 1, 0) // Admin seat already taken
 
     if (teamMembers.length > availableSeats) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['team', 'teamMembers'],
-        message: `Plan ${plan} allows ${availableSeats} team members but ${teamMembers.length} were provided`,
+        message: `${planSpec.label} allows ${availableSeats} team members but ${teamMembers.length} were provided`,
       })
     }
 
@@ -119,21 +129,30 @@ const legacyRegisterSchema = z.object({
 
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000
 const SEVEN_DAYS_IN_MS = 7 * ONE_DAY_IN_MS
+const TRIAL_DURATION_MS = DEFAULT_TRIAL_DAYS * ONE_DAY_IN_MS
+
+function computeTrialExpiry(plan: PlanTier): Date | null {
+  if (plan !== 'FREE') {
+    return null
+  }
+  return new Date(Date.now() + TRIAL_DURATION_MS)
+}
 
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.json()
     const flow: string = payload?.flow ?? 'legacy'
+    const planFromQuery = parsePlanTier(request.nextUrl?.searchParams.get('plan'))
 
     if (flow === 'bidder') {
-      return await handleBidderRegistration(payload)
+      return await handleBidderRegistration(payload, planFromQuery ?? undefined)
     }
 
     if (flow === 'publisher') {
-      return await handlePublisherRegistration(payload)
+      return await handlePublisherRegistration(payload, planFromQuery ?? undefined)
     }
 
-    return await handleLegacyRegistration(payload)
+    return await handleLegacyRegistration(payload, planFromQuery ?? undefined)
   } catch (error) {
     console.error('Registration error:', error)
 
@@ -151,9 +170,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function handleBidderRegistration(rawBody: unknown) {
+async function handleBidderRegistration(rawBody: unknown, selectedPlan?: PlanTier) {
   const data = bidderRegistrationSchema.parse(rawBody)
   const { step1, step2, team } = data
+  const planTier = selectedPlan ?? team.plan
+  const planExpiresAt = computeTrialExpiry(planTier)
 
   const existingUser = await db.user.findUnique({
     where: { email: step1.email },
@@ -183,7 +204,8 @@ async function handleBidderRegistration(rawBody: unknown) {
           description: step2.about,
           industry,
           website: step2.website,
-          planTier: team.plan,
+          planTier,
+          planExpiresAt,
           type: 'BIDDER',
         },
       })
@@ -254,6 +276,7 @@ async function handleBidderRegistration(rawBody: unknown) {
       name: organization.name,
       slug: organization.slug,
       planTier: organization.planTier,
+      planExpiresAt: organization.planExpiresAt,
     },
     pendingInvitations: invitations.map((invitation) => ({
       id: invitation.id,
@@ -266,7 +289,7 @@ async function handleBidderRegistration(rawBody: unknown) {
     requiresEmailVerification: false,
   }
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (env.NODE_ENV !== 'production') {
     response.debug = {
       invitationTokens: invitations.map((invitation) => ({
         email: invitation.email,
@@ -278,8 +301,10 @@ async function handleBidderRegistration(rawBody: unknown) {
   return NextResponse.json(response, { status: 201 })
 }
 
-async function handlePublisherRegistration(rawBody: unknown) {
+async function handlePublisherRegistration(rawBody: unknown, selectedPlan?: PlanTier) {
   const data = publisherRegistrationSchema.parse(rawBody)
+  const planTier = selectedPlan ?? 'FREE'
+  const planExpiresAt = computeTrialExpiry(planTier)
 
   const existingUser = await db.user.findUnique({
     where: { email: data.email },
@@ -303,6 +328,8 @@ async function handlePublisherRegistration(rawBody: unknown) {
         description: 'Publisher workspace created during registration',
         website: data.website ?? null,
         type: 'PUBLISHER',
+        planTier,
+        planExpiresAt,
       },
     })
 
@@ -350,11 +377,13 @@ async function handlePublisherRegistration(rawBody: unknown) {
       name: organization.name,
       slug: organization.slug,
       type: organization.type,
+      planTier: organization.planTier,
+      planExpiresAt: organization.planExpiresAt,
     },
     requiresEmailVerification: true,
   }
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (env.NODE_ENV !== 'production') {
     response.debug = {
       verificationToken: verificationToken.token,
     }
@@ -363,8 +392,10 @@ async function handlePublisherRegistration(rawBody: unknown) {
   return NextResponse.json(response, { status: 201 })
 }
 
-async function handleLegacyRegistration(rawBody: unknown) {
+async function handleLegacyRegistration(rawBody: unknown, selectedPlan?: PlanTier) {
   const { email, password, name } = legacyRegisterSchema.parse(rawBody)
+  const planTier = selectedPlan ?? 'FREE'
+  const planExpiresAt = computeTrialExpiry(planTier)
 
   const existingUser = await db.user.findUnique({
     where: { email },
@@ -395,6 +426,8 @@ async function handleLegacyRegistration(rawBody: unknown) {
         slug: organizationSlug,
         description: 'Default organization created during registration',
         type: 'BIDDER',
+        planTier,
+        planExpiresAt,
       },
     })
 
@@ -431,7 +464,7 @@ async function handleLegacyRegistration(rawBody: unknown) {
     requiresEmailVerification: true,
   }
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (env.NODE_ENV !== 'production') {
     response.debug = {
       verificationToken: verificationToken.token,
     }

@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { UploadKind, UploadStatus } from '@prisma/client'
 
 import { db } from '@/lib/db'
-import { readEnvVar } from '@/lib/env'
+import { env } from '@/lib/env'
 import { authOptions } from '@/lib/auth'
 import { createSupabaseServiceClient } from '@/lib/storage'
 
@@ -46,7 +46,7 @@ const MIME_TYPES_BY_EXTENSION: Record<string, readonly string[]> = {
 }
 
 function resolveMaxUploadSizeBytes(): number {
-  const rawValue = readEnvVar('TENDER_UPLOAD_MAX_SIZE_MB')
+  const rawValue = env.TENDER_UPLOAD_MAX_SIZE_MB
   if (!rawValue || rawValue.length === 0) {
     return DEFAULT_MAX_UPLOAD_SIZE_MB * 1024 * 1024
   }
@@ -66,7 +66,7 @@ function resolveMaxUploadSizeBytes(): number {
 const MAX_UPLOAD_SIZE_BYTES = resolveMaxUploadSizeBytes()
 
 function resolveSupabaseObjectLimitBytes(): number {
-  const rawBytes = readEnvVar('SUPABASE_OBJECT_MAX_BYTES')
+  const rawBytes = env.SUPABASE_OBJECT_MAX_BYTES
   if (rawBytes && rawBytes.length > 0) {
     const numeric = Number(rawBytes)
     if (Number.isFinite(numeric) && numeric >= 0) {
@@ -77,7 +77,7 @@ function resolveSupabaseObjectLimitBytes(): number {
     )
   }
 
-  const rawMb = readEnvVar('SUPABASE_OBJECT_MAX_MB')
+  const rawMb = env.SUPABASE_OBJECT_MAX_MB
   if (rawMb && rawMb.length > 0) {
     const numeric = Number(rawMb)
     if (Number.isFinite(numeric) && numeric >= 0) {
@@ -185,11 +185,11 @@ export async function POST(request: NextRequest) {
     const uploadId = randomUUID()
     const storedFilename = `original.${extension}`
 
-    const supabaseUrl = readEnvVar('SUPABASE_URL')
-    const supabaseServiceRole = readEnvVar('SUPABASE_SERVICE_ROLE_KEY')
+    const supabaseUrl = env.SUPABASE_URL
+    const supabaseServiceRole = env.SUPABASE_SERVICE_ROLE_KEY
     const supabaseBucket =
-      readEnvVar('SUPABASE_TENDER_UPLOADS_BUCKET') ??
-      readEnvVar('SUPABASE_STORAGE_UPLOADS_BUCKET') ??
+      env.SUPABASE_TENDER_UPLOADS_BUCKET ??
+      env.SUPABASE_STORAGE_UPLOADS_BUCKET ??
       DEFAULT_BUCKET_NAME
 
     let uploadUrl: string | undefined

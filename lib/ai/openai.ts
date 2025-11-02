@@ -6,9 +6,9 @@ import {
   FALLBACK_EMBEDDING_MODEL,
   shouldUseFallbackEmbedding,
 } from '@/lib/ai/fallback-embedding'
+import { env } from '@/lib/env'
 
-const rawApiKey = process.env.OPENAI_API_KEY ?? ''
-const apiKey = rawApiKey.trim()
+const apiKey = env.OPENAI_API_KEY ?? ''
 
 // Maintain existing behaviour for consumers that expect an OpenAI client.
 // If the API key is missing the instance will still exist but requests will fail upstream.

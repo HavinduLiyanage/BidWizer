@@ -159,6 +159,31 @@ function isZipAttachment(attachment: Attachment): boolean {
   return /\.zip$/.test(normalizedName);
 }
 
+function buildDocumentStreamUrl(tenderId: string, attachmentId: string): string {
+  return `/api/public/tenders/${encodeURIComponent(tenderId)}/documents/${encodeURIComponent(
+    attachmentId,
+  )}/stream`;
+}
+
+function resolveAttachmentUrl(
+  tenderId: string | null | undefined,
+  attachment?: Attachment | null,
+): string | null {
+  if (!attachment) {
+    return null;
+  }
+
+  if (attachment.url) {
+    return attachment.url;
+  }
+
+  if (!tenderId) {
+    return null;
+  }
+
+  return buildDocumentStreamUrl(tenderId, attachment.id);
+}
+
 export default function TenderDetailPage() {
   const params = useParams();
   const tenderId = params.id as string;
@@ -271,7 +296,7 @@ export default function TenderDetailPage() {
     }
     const primary = tender.attachments.find(
       (attachment) =>
-        attachment.isAdvertisement && Boolean(attachment.url) && isImageAttachment(attachment)
+        attachment.isAdvertisement && isImageAttachment(attachment)
     );
 
     if (primary) {
@@ -279,9 +304,13 @@ export default function TenderDetailPage() {
     }
 
     return tender.attachments.find(
-      (attachment) => Boolean(attachment.url) && isImageAttachment(attachment)
+      (attachment) => isImageAttachment(attachment)
     ) ?? null;
   }, [tender]);
+
+  const advertisementImageSrc = advertisementImage
+    ? resolveAttachmentUrl(tenderId, advertisementImage)
+    : null;
 
   const downloadableAttachments = useMemo(() => {
     if (!tender) {
@@ -414,21 +443,21 @@ export default function TenderDetailPage() {
             transition={{ delay: 0.1 }}
             className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm"
           >
-            <div className="flex items-center gap-2 mb-4">
-              <Eye className="h-4 w-4 text-primary" />
-              <h2 className="text-lg font-semibold text-gray-900">Project Advertisement</h2>
-            </div>
-            {advertisementImage && advertisementImage.url ? (
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-full max-w-xl">
-                  <div className="relative w-full overflow-hidden rounded-lg border border-gray-200 bg-white">
-                    <Image
-                      src={advertisementImage.url}
-                      alt={`${tender.title} advertisement`}
-                      width={800}
-                      height={1100}
-                      className="h-auto w-full object-contain"
-                      priority
+          <div className="flex items-center gap-2 mb-4">
+            <Eye className="h-4 w-4 text-primary" />
+            <h2 className="text-lg font-semibold text-gray-900">Project Advertisement</h2>
+          </div>
+          {advertisementImage && advertisementImageSrc ? (
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-full max-w-xl">
+                <div className="relative w-full overflow-hidden rounded-lg border border-gray-200 bg-white">
+                  <Image
+                    src={advertisementImageSrc}
+                    alt={`${tender.title} advertisement`}
+                    width={800}
+                    height={1100}
+                    className="h-auto w-full object-contain"
+                    priority
                     />
                   </div>
                 </div>
@@ -479,32 +508,35 @@ export default function TenderDetailPage() {
                 <h2 className="text-lg font-semibold text-gray-900">Attachments</h2>
               </div>
               <ul className="space-y-3">
-                {downloadableAttachments.map((attachment) => (
-                  <li
-                    key={attachment.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-4 py-3 text-sm text-gray-700"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <FileText className="h-4 w-4 text-primary flex-shrink-0" />
-                      <span className="truncate font-medium">{attachment.name}</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      {attachment.size ? (
-                        <span className="text-xs text-gray-500">{formatFileSize(attachment.size)}</span>
-                      ) : null}
-                      {attachment.url && !isZipAttachment(attachment) ? (
-                        <Link
-                          href={attachment.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs font-medium text-primary hover:underline"
-                        >
-                          Download
-                        </Link>
-                      ) : null}
-                    </div>
-                  </li>
-                ))}
+                {downloadableAttachments.map((attachment) => {
+                  const downloadUrl = resolveAttachmentUrl(tenderId, attachment);
+                  return (
+                    <li
+                      key={attachment.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-4 py-3 text-sm text-gray-700"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileText className="h-4 w-4 text-primary flex-shrink-0" />
+                        <span className="truncate font-medium">{attachment.name}</span>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        {attachment.size ? (
+                          <span className="text-xs text-gray-500">{formatFileSize(attachment.size)}</span>
+                        ) : null}
+                        {downloadUrl && !isZipAttachment(attachment) ? (
+                          <Link
+                            href={downloadUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs font-medium text-primary hover:underline"
+                          >
+                            Download
+                          </Link>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </motion.div>
           )}

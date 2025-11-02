@@ -17,6 +17,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { type PlanTier } from "@/lib/entitlements";
+import {
+  getPlanStepperSteps,
+  normalizePlanTier,
+  planRequiresTeamSetup,
+  submitBidderRegistration,
+} from "@/lib/registration-flow";
 
 export default function BidderRegistrationStep2() {
   const router = useRouter();
@@ -29,6 +36,29 @@ export default function BidderRegistrationStep2() {
     about: "",
   });
   const [isAccessReady, setIsAccessReady] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<PlanTier>("FREE");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+
+  const requiresTeamSetup = planRequiresTeamSetup(selectedPlan);
+  const stepperSteps = getPlanStepperSteps(selectedPlan);
+  const stepperCurrentStep = requiresTeamSetup ? 2 : 3;
+  const stepperCompletedSteps = requiresTeamSetup ? [1] : [1, 2];
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const planFromUrl = normalizePlanTier(searchParams.get("plan"));
+    const storedPlanSession = normalizePlanTier(sessionStorage.getItem("bidder_selected_plan"));
+    const storedPlanLocal = normalizePlanTier(typeof window !== "undefined" ? localStorage.getItem("bidder_selected_plan") : null);
+    const resolvedPlan = planFromUrl ?? storedPlanSession ?? storedPlanLocal ?? "FREE";
+
+    setSelectedPlan(resolvedPlan);
+    sessionStorage.setItem("bidder_selected_plan", resolvedPlan);
+    try { localStorage.setItem("bidder_selected_plan", resolvedPlan); } catch {}
+  }, [searchParams]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -124,37 +154,63 @@ export default function BidderRegistrationStep2() {
     }
   }, [isAccessReady]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate that industry is selected
     if (!formData.industry) {
-      alert('Please select an industry');
+      alert("Please select an industry");
       return;
     }
 
-    // Validate that if "other" is selected, otherIndustry is filled
-    if (formData.industry === 'other' && !formData.otherIndustry.trim()) {
-      alert('Please specify your industry');
+    if (formData.industry === "other" && !formData.otherIndustry.trim()) {
+      alert("Please specify your industry");
       return;
     }
 
-    // Validate company description length
     if (formData.about.trim().length < 20) {
-      alert('Please provide at least 20 characters in the company description');
+      alert("Please provide at least 20 characters in the company description");
       return;
     }
 
     const trimmedData = {
       companyName: formData.companyName.trim(),
       industry: formData.industry,
-      otherIndustry: formData.industry === 'other' ? formData.otherIndustry.trim() : '',
+      otherIndustry: formData.industry === "other" ? formData.otherIndustry.trim() : "",
       website: formData.website.trim(),
       about: formData.about.trim(),
     };
 
     localStorage.setItem("bidder_step2", JSON.stringify(trimmedData));
-    router.push("/register/bidder/step3");
+
+    if (requiresTeamSetup) {
+      router.push(`/register/bidder/step3?plan=${encodeURIComponent(selectedPlan)}`);
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmissionError(null);
+
+    try {
+      const result = await submitBidderRegistration(selectedPlan, []);
+
+      if (result.status === "missing-data") {
+        setSubmissionError(result.errorMessage);
+        router.push("/register/bidder/step1");
+        return;
+      }
+
+      if (result.status === "error") {
+        setSubmissionError(result.errorMessage);
+        return;
+      }
+
+      router.push(result.loginUrl);
+    } catch (error) {
+      console.error("Failed to finalize bidder registration:", error);
+      setSubmissionError("Unexpected error completing registration. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleBack = () => {
@@ -177,7 +233,11 @@ export default function BidderRegistrationStep2() {
         <main className="flex-1 bg-slate-50 py-12">
           <div className="container mx-auto px-4 md:px-6">
             <div className="max-w-2xl mx-auto">
-              <Stepper currentStep={2} completedSteps={[1]} />
+              <Stepper
+                currentStep={stepperCurrentStep}
+                completedSteps={stepperCompletedSteps}
+                steps={stepperSteps}
+              />
 
               <div className="bg-white rounded-2xl shadow-sm p-12 flex flex-col items-center justify-center gap-4 text-center">
                 <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -207,7 +267,11 @@ export default function BidderRegistrationStep2() {
       <main className="flex-1 bg-slate-50 py-12">
         <div className="container mx-auto px-4 md:px-6">
           <div className="max-w-2xl mx-auto">
-            <Stepper currentStep={2} completedSteps={[1]} />
+            <Stepper
+              currentStep={stepperCurrentStep}
+              completedSteps={stepperCompletedSteps}
+              steps={stepperSteps}
+            />
 
             <div className="bg-white rounded-2xl shadow-sm p-8 md:p-12">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -216,6 +280,12 @@ export default function BidderRegistrationStep2() {
               <p className="text-gray-600 mb-8">
                 Provide key information about your organization
               </p>
+
+              {submissionError && (
+                <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {submissionError}
+                </div>
+              )}
 
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="space-y-2">
@@ -329,8 +399,17 @@ export default function BidderRegistrationStep2() {
                   >
                     Back
                   </Button>
-                  <Button type="submit" className="sm:flex-1" disabled={!isFormValid}>
-                    Complete the profile
+                  <Button type="submit" className="sm:flex-1" disabled={!isFormValid || isSubmitting}>
+                    {isSubmitting ? (
+                      <span className="flex items-center justify-center">
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Finishing...
+                      </span>
+                    ) : requiresTeamSetup ? (
+                      "Continue to team setup"
+                    ) : (
+                      "Finish registration"
+                    )}
                   </Button>
                 </div>
               </form>
@@ -343,4 +422,3 @@ export default function BidderRegistrationStep2() {
     </>
   );
 }
-

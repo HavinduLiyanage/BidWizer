@@ -2,8 +2,11 @@
  * FX conversion utilities
  */
 
+import { env } from '@/lib/env'
+
 export function getUSDtoLKR(): number {
-  return Number(process.env.NEXT_PUBLIC_FX_USD_LKR) || 330;
+  const rate = Number(env.NEXT_PUBLIC_FX_USD_LKR)
+  return Number.isFinite(rate) && rate > 0 ? rate : 330
 }
 
 export function formatUSD(amount: number): string {

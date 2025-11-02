@@ -1,10 +1,12 @@
 import { Resend } from 'resend'
 
-const APP_BASE_URL = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
+import { env } from '@/lib/env'
+
+const APP_BASE_URL = env.NEXTAUTH_URL ?? 'http://localhost:3000'
 
 const resendClient =
-  process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim().length > 0
-    ? new Resend(process.env.RESEND_API_KEY)
+  env.RESEND_API_KEY && env.RESEND_API_KEY.length > 0
+    ? new Resend(env.RESEND_API_KEY)
     : null
 
 export function isEmailServiceEnabled() {

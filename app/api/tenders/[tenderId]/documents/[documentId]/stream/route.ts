@@ -7,6 +7,8 @@ import * as unzipper from "unzipper";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { loadUploadBuffer } from "@/lib/uploads";
+import { enforceAccess, PlanError } from "@/lib/entitlements/enforce";
+import type { PlanErrorResponse } from "@/types/api-errors";
 
 export const runtime = "nodejs";
 
@@ -65,6 +67,43 @@ function safeFilename(name?: string | null): string {
   return trimmed.length > 0 ? trimmed : "document";
 }
 
+function resolveRequestedPage(request: NextRequest): number | undefined {
+  const candidates: string[] = [];
+  const params = request.nextUrl.searchParams;
+  const paramKeys = ["page", "pages", "p", "from", "to", "startPage", "endPage"];
+  for (const key of paramKeys) {
+    for (const value of params.getAll(key)) {
+      if (value) {
+        candidates.push(value);
+      }
+    }
+  }
+
+  const headerKeys = ["x-bidwizer-page", "x-bidwizer-pages", "x-page", "x-pages"];
+  for (const key of headerKeys) {
+    const value = request.headers.get(key);
+    if (value) {
+      candidates.push(value);
+    }
+  }
+
+  let highest: number | undefined;
+  for (const candidate of candidates) {
+    const matches = candidate.match(/\d+/g);
+    if (!matches) {
+      continue;
+    }
+    for (const match of matches) {
+      const parsed = Number.parseInt(match, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        highest = highest ? Math.max(highest, parsed) : parsed;
+      }
+    }
+  }
+
+  return highest;
+}
+
 async function downloadUploadPayload(upload: {
   storageKey: string | null;
   url: string | null;
@@ -86,7 +125,7 @@ async function downloadUploadPayload(upload: {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: { tenderId: string; documentId: string } },
 ) {
   try {
@@ -118,6 +157,22 @@ export async function GET(
 
     if (!membership) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const page = resolveRequestedPage(request);
+
+    try {
+      await enforceAccess({
+        orgId: tender.organizationId,
+        feature: "pageView",
+        page,
+      });
+    } catch (error) {
+      if (error instanceof PlanError) {
+        const payload: PlanErrorResponse = { error: error.code, message: error.message };
+        return NextResponse.json(payload, { status: error.http });
+      }
+      throw error;
     }
 
     const rawId = documentId.startsWith("file:")
@@ -266,6 +321,10 @@ export async function GET(
         { error: "Validation failed", details: error.errors },
         { status: 400 },
       );
+    }
+    if (error instanceof PlanError) {
+      const payload: PlanErrorResponse = { error: error.code, message: error.message };
+      return NextResponse.json(payload, { status: error.http });
     }
 
     console.error("[tenders-documents-stream] Failed to stream document:", error);

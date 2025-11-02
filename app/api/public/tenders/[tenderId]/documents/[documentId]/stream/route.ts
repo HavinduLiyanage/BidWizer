@@ -214,10 +214,21 @@ export async function GET(
         originalName: true,
         mimeType: true,
         status: true,
+        kind: true,
+        isAdvertisement: true,
       },
     });
 
-    if (!upload || upload.tenderId !== tenderId || upload.status !== UploadStatus.COMPLETED) {
+    const allowIncompleteImage =
+      upload &&
+      (upload.kind === UploadKind.image || upload.isAdvertisement === true);
+
+    if (
+      !upload ||
+      upload.tenderId !== tenderId ||
+      (upload.status !== UploadStatus.COMPLETED &&
+        !(allowIncompleteImage && upload.status !== UploadStatus.FAILED))
+    ) {
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
 

@@ -9,6 +9,12 @@ import { Footer } from "@/components/Footer";
 import { Stepper } from "@/components/Stepper";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { type PlanTier } from "@/lib/entitlements";
+import {
+  getPlanStepperSteps,
+  normalizePlanTier,
+  planRequiresTeamSetup,
+} from "@/lib/registration-flow";
 
 export default function WaitingConfirmationPage() {
   const router = useRouter();
@@ -17,6 +23,27 @@ export default function WaitingConfirmationPage() {
   const [isResending, setIsResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [selectedPlan, setSelectedPlan] = useState<PlanTier>("FREE");
+
+  const requiresTeamSetup = planRequiresTeamSetup(selectedPlan);
+  const stepperSteps = getPlanStepperSteps(selectedPlan);
+  const stepperCurrentStep = requiresTeamSetup ? 1 : 2;
+  const stepperCompletedSteps = requiresTeamSetup ? [] : [1];
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const planFromQuery = normalizePlanTier(searchParams.get("plan"));
+    const storedPlanSession = normalizePlanTier(sessionStorage.getItem("bidder_selected_plan"));
+    const storedPlanLocal = normalizePlanTier(typeof window !== "undefined" ? localStorage.getItem("bidder_selected_plan") : null);
+    const resolvedPlan = planFromQuery ?? storedPlanSession ?? storedPlanLocal ?? "FREE";
+
+    setSelectedPlan(resolvedPlan);
+    sessionStorage.setItem("bidder_selected_plan", resolvedPlan);
+    try { localStorage.setItem("bidder_selected_plan", resolvedPlan); } catch {}
+  }, [searchParams]);
 
   useEffect(() => {
     const emailParam = searchParams.get("email");
@@ -64,9 +91,12 @@ export default function WaitingConfirmationPage() {
       if (status === "confirmed" && token) {
         const targetEmail = resolveEmail();
         const emailQuery = targetEmail ? `&email=${encodeURIComponent(targetEmail)}` : "";
+        const planValue = normalizePlanTier(sessionStorage.getItem("bidder_selected_plan"))
+          ?? normalizePlanTier(typeof window !== "undefined" ? localStorage.getItem("bidder_selected_plan") : null);
+        const planQuery = planValue ? `&plan=${encodeURIComponent(planValue)}` : "";
 
         router.push(
-          `/register/bidder/step2?token=${encodeURIComponent(token)}${emailQuery}`
+          `/register/bidder/step2?token=${encodeURIComponent(token)}${emailQuery}${planQuery}`
         );
       }
     };
@@ -147,7 +177,11 @@ export default function WaitingConfirmationPage() {
       <main className="flex-1 bg-slate-50 py-12">
         <div className="container mx-auto px-4 md:px-6">
           <div className="max-w-2xl mx-auto">
-            <Stepper currentStep={1} completedSteps={[]} />
+            <Stepper
+              currentStep={stepperCurrentStep}
+              completedSteps={stepperCompletedSteps}
+              steps={stepperSteps}
+            />
 
             <motion.div
               initial={{ opacity: 0, y: 20 }}

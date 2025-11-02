@@ -2,7 +2,7 @@ import 'server-only'
 
 import IORedis, { type Redis, type RedisOptions } from 'ioredis'
 
-import { readEnvVar } from '@/lib/env'
+import { env } from '@/lib/env'
 import { PROGRESS_TTL_SECONDS } from '@/lib/indexing/constants'
 import type { IndexPhase, IndexProgressSnapshot, IndexResumeState } from '@/lib/indexing/types'
 
@@ -95,7 +95,7 @@ function buildRedisOptions(url: string): RedisOptions {
 }
 
 function resolveRedisUrl(): string {
-  const primary = readEnvVar('REDIS_URL') ?? readEnvVar('UPSTASH_REDIS_URL')
+  const primary = env.REDIS_URL ?? env.UPSTASH_REDIS_URL
   if (!primary) {
     throw new Error('Redis is not configured. Expected REDIS_URL or UPSTASH_REDIS_URL.')
   }

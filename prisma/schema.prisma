@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -45,24 +45,29 @@ model VerificationToken {
 }
 
 model Organization {
-  id            String           @id @default(cuid())
-  name          String
-  slug          String           @unique
-  description   String?
-  logo          String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  industry      String?
-  planTier      String?
-  type          OrganizationType @default(BIDDER)
-  website       String?
-  aiUsages      AiUsage[]
-  invitations   Invitation[]
-  members       OrgMember[]
-  plans         Plan[]
-  subscriptions Subscription[]
-  tenders       Tender[]
-  indexArtifacts IndexArtifact[]
+  id              String           @id @default(cuid())
+  name            String
+  slug            String           @unique
+  description     String?
+  logo            String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  industry        String?
+  type            OrganizationType @default(BIDDER)
+  website         String?
+  planExpiresAt   DateTime?
+  planTier        PlanTier         @default(FREE)
+  aiMonthlyUsages AiMonthlyUsage[]
+  aiUsages        AiUsage[]
+  indexArtifacts  IndexArtifact[]
+  invitations     Invitation[]
+  members         OrgMember[]
+  orgTenderUsages OrgTenderUsage[]
+  plans           Plan[]
+  subscriptions   Subscription[]
+  tenders         Tender[]
+  documents       Document[]
+  uploads         Upload[]
 
   @@map("organizations")
 }
@@ -111,15 +116,15 @@ model Invitation {
 }
 
 model Tender {
-  id                String          @id @default(cuid())
+  id                String           @id @default(cuid())
   title             String
   description       String?
-  reference         String?         @unique
-  status            TenderStatus    @default(DRAFT)
+  reference         String?          @unique
+  status            TenderStatus     @default(DRAFT)
   publishedAt       DateTime?
   deadline          DateTime?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
   organizationId    String
   category          String?
   estimatedValue    String?
@@ -134,7 +139,9 @@ model Tender {
   chunks            Chunk[]
   extractedFiles    ExtractedFile[]
   indexArtifacts    IndexArtifact[]
-  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documents         Document[]
+  orgTenderUsages   OrgTenderUsage[]
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   uploads           Upload[]
 
   @@index([organizationId])
@@ -144,25 +151,25 @@ model Tender {
 }
 
 model Upload {
-  id             String          @id @default(cuid())
-  filename       String
-  originalName   String
-  kind           UploadKind
-  status         UploadStatus    @default(PENDING)
-  size           Int
-  mimeType       String?
-  url            String?
-  storageKey     String?
-  metadata       Json?
-  orgId          String
-  error          String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  tenderId       String
-  isAdvertisement Boolean        @default(false)
-  extractedFiles ExtractedFile[]
-  organization   Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  tender         Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  id              String          @id @default(cuid())
+  filename        String
+  originalName    String
+  kind            UploadKind
+  status          UploadStatus    @default(PENDING)
+  size            Int
+  mimeType        String?
+  url             String?
+  storageKey      String?
+  orgId           String
+  error           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  tenderId        String
+  isAdvertisement Boolean         @default(false)
+  metadata        Json?
+  extractedFiles  ExtractedFile[]
+  organization    Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  tender          Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
 
   @@index([tenderId])
   @@index([status])
@@ -171,21 +178,21 @@ model Upload {
 }
 
 model ExtractedFile {
-  id        String   @id @default(cuid())
-  filename  String
-  page      Int?
-  content   String?
-  metadata  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  tenderId  String
-  uploadId  String
-  docHash   String   @unique
+  id            String   @id @default(cuid())
+  filename      String
+  page          Int?
+  content       String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  tenderId      String
+  uploadId      String
+  docHash       String   @unique
   storageBucket String?
-  storageKey String?
-  chunks    Chunk[]
-  tender    Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
-  upload    Upload   @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  storageKey    String?
+  chunks        Chunk[]
+  tender        Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  upload        Upload   @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 
   @@index([tenderId, uploadId, page])
   @@index([docHash])
@@ -207,6 +214,69 @@ model Chunk {
 
   @@index([tenderId, extractedFileId, page])
   @@map("chunks")
+}
+
+enum DocStatus {
+  PENDING
+  EXTRACTING
+  CHUNKING
+  EMBEDDING
+  SUMMARIZING
+  READY
+  FAILED
+}
+
+model Document {
+  id        String      @id @default(cuid())
+  orgId     String
+  tenderId  String
+  docHash   String
+  title     String
+  pages     Int
+  bytes     Int
+  hasText   Boolean     @default(true)
+  status    DocStatus   @default(PENDING)
+  error     String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  sections  DocumentSection[]
+  summary   DocumentSummary?
+
+  tender Tender @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, tenderId, docHash])
+  @@index([tenderId, status])
+  @@index([orgId, tenderId])
+  @@map("documents")
+}
+
+model DocumentSection {
+  id         String    @id @default(cuid())
+  documentId String
+  pageStart  Int
+  pageEnd    Int
+  heading    String?
+  text       String
+  embedding  Json?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@map("document_sections")
+}
+
+model DocumentSummary {
+  documentId   String   @id
+  abstract     String?
+  sectionsJson Json?
+  updatedAt    DateTime @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_summaries")
 }
 
 model ChatThread {
@@ -241,24 +311,52 @@ model ChatMessage {
 }
 
 model IndexArtifact {
-  id          String              @id @default(cuid())
-  orgId       String
-  tenderId    String
-  docHash     String              @unique
-  version     Int                 @default(1)
-  status      IndexArtifactStatus @default(BUILDING)
-  storageKey  String
-  totalChunks Int                 @default(0)
-  totalPages  Int                 @default(0)
-  bytesApprox Int                 @default(0)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  organization Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  tender      Tender              @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  id           String              @id @default(cuid())
+  orgId        String
+  tenderId     String
+  docHash      String              @unique
+  version      Int                 @default(1)
+  status       IndexArtifactStatus @default(BUILDING)
+  storageKey   String
+  totalChunks  Int                 @default(0)
+  totalPages   Int                 @default(0)
+  bytesApprox  Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  organization Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  tender       Tender              @relation(fields: [tenderId], references: [id], onDelete: Cascade)
 
   @@index([orgId, tenderId])
   @@index([status])
   @@map("index_artifacts")
+}
+
+model AiMonthlyUsage {
+  id             String       @id @default(cuid())
+  organizationId String
+  periodStart    DateTime
+  periodEnd      DateTime
+  usedChats      Int          @default(0)
+  usedBriefs     Int          @default(0)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, periodStart])
+  @@index([organizationId])
+  @@map("ai_monthly_usage")
+}
+
+model OrgTenderUsage {
+  id             String       @id @default(cuid())
+  organizationId String
+  tenderId       String
+  usedChats      Int          @default(0)
+  usedBriefs     Int          @default(0)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tender         Tender       @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, tenderId])
+  @@index([tenderId])
+  @@map("org_tender_usage")
 }
 
 model AiUsage {
@@ -332,6 +430,13 @@ enum OrgMemberRole {
 enum OrganizationType {
   BIDDER
   PUBLISHER
+}
+
+enum PlanTier {
+  FREE
+  STANDARD
+  PREMIUM
+  ENTERPRISE
 }
 
 enum TenderStatus {

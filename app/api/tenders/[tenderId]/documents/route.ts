@@ -169,6 +169,7 @@ export async function GET(
             kind: true,
             mimeType: true,
             url: true,
+            isAdvertisement: true,
             extractedFiles: {
               select: {
                 id: true,
@@ -209,6 +210,10 @@ export async function GET(
     };
 
     for (const upload of tender.uploads) {
+      if (upload.isAdvertisement || upload.kind === UploadKind.image) {
+        continue;
+      }
+
       if (upload.kind === UploadKind.zip) {
         for (const extracted of upload.extractedFiles) {
           const metadata =

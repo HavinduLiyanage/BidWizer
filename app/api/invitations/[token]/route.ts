@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { db } from '@/lib/db'
 import { sendVerificationEmail } from '@/lib/email'
+import { env } from '@/lib/env'
 
 const acceptInvitationSchema = z
   .object({
@@ -183,7 +184,7 @@ export async function POST(
       },
     }
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (env.NODE_ENV !== 'production') {
       response.debug = {
         verificationToken: verificationToken.token,
       }

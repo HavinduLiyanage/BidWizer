@@ -1,64 +1,110 @@
-/**
- * Entitlements and plan management (stub implementation)
- */
+export type PlanTier = "FREE" | "STANDARD" | "PREMIUM" | "ENTERPRISE";
 
-export type PlanTier = "Basic" | "Team" | "ENTERPRISE";
-
-export interface PlanFeatures {
-  name: string;
-  price: number;
+export interface PlanSpec {
+  id: PlanTier;
+  label: string;
+  priceLKR?: number;
+  priceUSD?: number;
+  seats: number;
+  aiMonthlyLimit: number | null;
+  pageLimit?: number | null;
   features: string[];
-  monthlyAIQuestions: number;
-  seats?: number;
+  highlight?: string;
+  isPopular?: boolean;
+  trialDays?: number;
+  includesCoverLetter?: boolean;
+  includesFolderChat?: boolean;
+  supportLevel: "email" | "priority" | "custom";
 }
 
-export const PLANS: Record<PlanTier, PlanFeatures> = {
-  Basic: {
-    name: "Basic Plan",
-    price: 20,
-    monthlyAIQuestions: 120,
-    seats: 3,
+export const PLANS_ORDER: PlanTier[] = ["FREE", "STANDARD", "PREMIUM", "ENTERPRISE"];
+
+export const PLAN_SPECS: Record<PlanTier, PlanSpec> = {
+  FREE: {
+    id: "FREE",
+    label: "Freemium / Trial",
+    trialDays: 7,
+    priceLKR: 0,
+    priceUSD: 0,
+    seats: 1,
+    pageLimit: 3,
+    aiMonthlyLimit: 0, // global monthly cap; FREE uses per-tender caps below
     features: [
-      "3 Seats total → 1 Admin (CEO) + 2 team members",
-      "120 AI Q&A interactions per month",
-      "Full access to all tender documents",
-      "Follow up to 5 publishers (email alerts)",
-      "Standard support (email + in-app chat)",
-      "Dashboard access with usage tracker",
-      "Company profile management"
+      "View tenders",
+      "View tender details",
+      "Workspace preview: first 3 pages",
+      "AI Brief: 1 per tender",
+      "AI Chat: 2 per tender",
+      "Email support",
     ],
+    highlight: "Try BidWizer with limited previews",
+    supportLevel: "email",
+    includesCoverLetter: false,
+    includesFolderChat: false,
   },
-  Team: {
-    name: "Team Plan",
-    price: 35,
-    monthlyAIQuestions: 300,
-    seats: 5,
+  STANDARD: {
+    id: "STANDARD",
+    label: "Standard",
+    priceLKR: 6000,
+    priceUSD: 20,
+    seats: 1,
+    pageLimit: null,
+    aiMonthlyLimit: 120,
     features: [
-      "5 Seats total → 1 Admin (CEO) + 4 team members",
-      "300 AI Q&A interactions per month",
       "Full access to all tender documents",
-      "Follow up to 15 publishers (email alerts)",
-      "Priority support (24-hour response)",
-      "Advanced dashboard with AI usage bar",
-      "Billing section & plan management"
+      "120 AI Q&A interactions per month",
+      "AI Brief: Unlimited",
+      "Cover Letter generator",
+      "Email + in-app chat support",
     ],
+    highlight: "Best for solo bidders",
+    supportLevel: "email",
+    includesCoverLetter: true,
+    includesFolderChat: false,
+  },
+  PREMIUM: {
+    id: "PREMIUM",
+    label: "Premium",
+    priceLKR: 10000,
+    priceUSD: 35,
+    seats: 2,
+    pageLimit: null,
+    aiMonthlyLimit: 300,
+    features: [
+      "Full access to all tender documents",
+      "300 AI Q&A interactions per month",
+      "AI Brief: Unlimited",
+      "Folder Chat (Beta)",
+      "Collaboration (2 seats)",
+      "Priority support (24-hour response)",
+      "Billing & plan management",
+    ],
+    highlight: "Most popular for teams",
+    isPopular: true,
+    supportLevel: "priority",
+    includesCoverLetter: true,
+    includesFolderChat: true,
   },
   ENTERPRISE: {
-    name: "Enterprise / Custom",
-    price: 0, // Contact for pricing
-    monthlyAIQuestions: 500,
-    seats: 10, // Custom seat allocations
+    id: "ENTERPRISE",
+    label: "Enterprise / Custom",
+    seats: 5,
+    aiMonthlyLimit: null,
+    pageLimit: null,
     features: [
       "Custom seat allocations",
       "Higher AI usage limits & dedicated support",
       "Advanced analytics & team reporting",
       "Private tender hosting or integrations",
-      "Custom onboarding & training"
+      "Custom onboarding & training",
     ],
+    supportLevel: "custom",
+    highlight: "Contact us for pricing",
   },
 };
 
-export function getPlanFeatures(tier: PlanTier): PlanFeatures {
-  return PLANS[tier];
+export function getPlanSpec(id: PlanTier): PlanSpec {
+  return PLAN_SPECS[id];
 }
 
+export const DEFAULT_TRIAL_DAYS = 7;

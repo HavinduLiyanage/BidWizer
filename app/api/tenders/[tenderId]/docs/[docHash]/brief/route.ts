@@ -8,6 +8,9 @@ import { db } from '@/lib/db'
 import { ensureTenderAccess } from '@/lib/indexing/access'
 import { retrieveChunksFromFile, buildContext } from '@/lib/ai/rag'
 import { openai } from '@/lib/ai/openai'
+import { enforceAccess, PlanError } from '@/lib/entitlements/enforce'
+import { incrementMonthly, incrementOrgTender } from '@/lib/usage'
+import type { PlanErrorResponse } from '@/types/api-errors'
 
 const paramsSchema = z.object({
   tenderId: z.string().min(1),
@@ -31,8 +34,12 @@ export async function POST(
 
     const { tenderId, docHash } = paramsSchema.parse(context.params)
     const { length, fileId } = bodySchema.parse(await request.json())
-
-    await ensureTenderAccess(session.user.id, tenderId)
+    const { organizationId } = await ensureTenderAccess(session.user.id, tenderId)
+    const planTier = await enforceAccess({
+      orgId: organizationId,
+      feature: 'brief',
+      tenderId,
+    })
 
     const artifact = await db.indexArtifact.findUnique({
       where: { docHash },
@@ -136,6 +143,12 @@ export async function POST(
       markdown = "I couldn't find that in this file."
     }
 
+    if (planTier === 'FREE') {
+      await incrementOrgTender(organizationId, tenderId, 'brief')
+    } else if (planTier === 'STANDARD' || planTier === 'PREMIUM') {
+      await incrementMonthly(organizationId, 'brief')
+    }
+
     return NextResponse.json({
       briefJson,
       markdown,
@@ -146,6 +159,10 @@ export async function POST(
         { error: 'Validation failed', details: error.issues },
         { status: 400 },
       )
+    }
+    if (error instanceof PlanError) {
+      const payload: PlanErrorResponse = { error: error.code, message: error.message }
+      return NextResponse.json(payload, { status: error.http })
     }
 
     console.error('[brief] failed:', error)

@@ -1,17 +1,23 @@
+import 'server-only'
+
 import { Prisma, PrismaClient } from '@prisma/client'
 
-if (!process.env.PRISMA_DISABLE_PREPARED_STATEMENTS) {
-  process.env.PRISMA_DISABLE_PREPARED_STATEMENTS = 'true'
-}
+import { env } from '@/lib/env'
+
+const prismaDisablePreparedStatements =
+  env.PRISMA_DISABLE_PREPARED_STATEMENTS === 'true' || !env.PRISMA_DISABLE_PREPARED_STATEMENTS
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
 const prismaLogLevels: Prisma.LogLevel[] =
-  process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
+  env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
 
-function adjustConnectionUrlForPgBouncer(url: string | undefined): string | undefined {
+function adjustConnectionUrlForPgBouncer(
+  url: string | undefined,
+  forceDisablePreparedStatements: boolean,
+): string | undefined {
   if (!url) {
     return undefined
   }
@@ -21,9 +27,6 @@ function adjustConnectionUrlForPgBouncer(url: string | undefined): string | unde
     const host = parsed.hostname.toLowerCase()
     const port = parsed.port
     const hasPgBouncerFlag = parsed.searchParams.get('pgbouncer') === 'true'
-    const forceDisablePreparedStatements =
-      process.env.PRISMA_DISABLE_PREPARED_STATEMENTS === 'true'
-
     const looksLikeTransactionPooler =
       host.includes('pooler.') || host.includes('pgbouncer') || port === '6543'
 
@@ -46,7 +49,10 @@ function adjustConnectionUrlForPgBouncer(url: string | undefined): string | unde
   }
 }
 
-const adjustedDatabaseUrl = adjustConnectionUrlForPgBouncer(process.env.DATABASE_URL)
+const adjustedDatabaseUrl = adjustConnectionUrlForPgBouncer(
+  env.DATABASE_URL,
+  prismaDisablePreparedStatements,
+)
 
 const prismaClientOptions: Prisma.PrismaClientOptions = {
   log: prismaLogLevels,
@@ -64,7 +70,32 @@ export const db =
   globalForPrisma.prisma ??
   new PrismaClient(prismaClientOptions)
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+if (env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+
+export const prisma = db
+
+export async function cleanupEmptyOrganizations(): Promise<{ deletedOrgIds: string[] }> {
+  const emptyOrgs = await db.organization.findMany({
+    where: { members: { none: {} } },
+    select: { id: true },
+  })
+
+  if (emptyOrgs.length === 0) {
+    return { deletedOrgIds: [] }
+  }
+
+  const ids = emptyOrgs.map((o) => o.id)
+
+  await db.$transaction(
+    ids.map((id) =>
+      db.organization.delete({
+        where: { id },
+      }),
+    ),
+  )
+
+  return { deletedOrgIds: ids }
+}
 
 /**
  * Asserts that a user has access to an organization by checking if they are a member.

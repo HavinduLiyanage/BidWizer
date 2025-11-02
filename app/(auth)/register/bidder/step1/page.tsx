@@ -10,6 +10,8 @@ import { Stepper } from "@/components/Stepper";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PlanTier, PLAN_SPECS } from "@/lib/entitlements";
+import { getPlanStepperSteps, normalizePlanTier } from "@/lib/registration-flow";
 
 export default function BidderRegistrationStep1() {
   const router = useRouter();
@@ -30,6 +32,12 @@ export default function BidderRegistrationStep1() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<PlanTier>("FREE");
+  const selectedPlanSpec = PLAN_SPECS[selectedPlan];
+  const selectedPlanLkr =
+    selectedPlanSpec.priceLKR != null ? `Rs ${selectedPlanSpec.priceLKR.toLocaleString("en-LK")}` : null;
+  const selectedPlanUsd =
+    selectedPlanSpec.priceUSD != null ? `~$${selectedPlanSpec.priceUSD}` : null;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -79,6 +87,11 @@ export default function BidderRegistrationStep1() {
       localStorage.removeItem("bidder_step1_temp");
       localStorage.removeItem("bidder_step1_resume_token");
       localStorage.removeItem("bidder_registration_summary");
+      sessionStorage.removeItem("bidder_selected_plan");
+      try { localStorage.removeItem("bidder_selected_plan"); } catch {}
+      setSelectedPlan("FREE");
+      sessionStorage.setItem("bidder_selected_plan", "FREE");
+      try { localStorage.setItem("bidder_selected_plan", "FREE"); } catch {}
       
       // Set session marker and update last visit
       sessionStorage.setItem("bidder_registration_session", "active");
@@ -161,6 +174,28 @@ export default function BidderRegistrationStep1() {
       setErrorMessage("Please confirm your email using the link we sent before continuing to Step 2.");
     }
   }, [searchParams, isEmailConfirmed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const planFromUrl = normalizePlanTier(searchParams.get("plan"));
+    if (planFromUrl) {
+      setSelectedPlan(planFromUrl);
+      sessionStorage.setItem("bidder_selected_plan", planFromUrl);
+      // persist to localStorage as a fallback across tabs/refreshes
+      try { localStorage.setItem("bidder_selected_plan", planFromUrl); } catch {}
+      return;
+    }
+
+    const storedPlanSession = normalizePlanTier(sessionStorage.getItem("bidder_selected_plan"));
+    const storedPlanLocal = normalizePlanTier(typeof window !== "undefined" ? localStorage.getItem("bidder_selected_plan") : null);
+    const resolved = storedPlanSession ?? storedPlanLocal ?? "FREE";
+    setSelectedPlan(resolved);
+    sessionStorage.setItem("bidder_selected_plan", resolved);
+    try { localStorage.setItem("bidder_selected_plan", resolved); } catch {}
+  }, [searchParams]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -375,7 +410,11 @@ export default function BidderRegistrationStep1() {
       }
 
       // Redirect to waiting confirmation page
-      router.push(`/register/bidder/waiting-confirmation?email=${encodeURIComponent(trimmedData.email)}`);
+      const confirmationParams = new URLSearchParams({ email: trimmedData.email });
+      if (selectedPlan) {
+        confirmationParams.set("plan", selectedPlan);
+      }
+      router.push(`/register/bidder/waiting-confirmation?${confirmationParams.toString()}`);
     } catch (error) {
       console.error("Failed to send confirmation email:", error);
       localStorage.removeItem("bidder_step1_status");
@@ -407,7 +446,35 @@ export default function BidderRegistrationStep1() {
               </Link>
             </div>
 
-            <Stepper currentStep={1} completedSteps={[]} />
+            <Stepper currentStep={1} completedSteps={[]} steps={getPlanStepperSteps(selectedPlan)} />
+
+            {selectedPlanSpec && (
+              <div className="mt-6 mb-6 rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-primary">Plan selected</p>
+                    <p className="text-base font-semibold text-gray-900">{selectedPlanSpec.label}</p>
+                    {selectedPlanSpec.highlight && (
+                      <p className="text-xs text-primary/80">{selectedPlanSpec.highlight}</p>
+                    )}
+                    {selectedPlanSpec.trialDays && (
+                      <p className="text-xs text-primary/70">
+                        Includes a {selectedPlanSpec.trialDays}-day trial.
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-start gap-1 text-right sm:items-end">
+                    {selectedPlanLkr && (
+                      <span className="text-sm font-semibold text-navy-900">{selectedPlanLkr}</span>
+                    )}
+                    {selectedPlanUsd && <span className="text-xs text-slate-600">{selectedPlanUsd}</span>}
+                    <Link href="/pricing" className="text-xs font-semibold text-primary hover:underline">
+                      Change plan
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="bg-white rounded-2xl shadow-sm p-8 md:p-12">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">

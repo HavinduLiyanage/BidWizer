@@ -1,7 +1,9 @@
 import IORedis from 'ioredis'
 import { Queue } from 'bullmq'
 
-const url = process.env.REDIS_URL
+import { env } from '@/lib/env'
+
+const url = env.REDIS_URL ?? env.UPSTASH_REDIS_URL
 
 if (!url) {
   throw new Error('REDIS_URL is not configured')
@@ -14,7 +16,10 @@ export const connection = new IORedis(url, {
   maxRetriesPerRequest: null,
 })
 
-export const INDEX_QUEUE = process.env.BIDWIZER_INDEX_QUEUE || 'tender-indexing'
+export const INDEX_QUEUE =
+  env.BIDWIZER_INDEX_QUEUE && env.BIDWIZER_INDEX_QUEUE.length > 0
+    ? env.BIDWIZER_INDEX_QUEUE
+    : 'tender-indexing'
 
 export const indexingQueue = new Queue(INDEX_QUEUE, {
   connection,

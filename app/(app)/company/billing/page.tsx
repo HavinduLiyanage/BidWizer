@@ -4,11 +4,21 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PLANS } from "@/lib/entitlements";
-import { formatPriceWithConversion } from "@/lib/fx";
+import { PLAN_SPECS, type PlanTier } from "@/lib/entitlements";
+
+const DEFAULT_PLAN: PlanTier = "STANDARD";
 
 export default function BillingPage() {
-  const currentPlan = PLANS.Team;
+  const currentPlan = PLAN_SPECS[DEFAULT_PLAN];
+  const priceLkr =
+    currentPlan.priceLKR != null
+      ? `Rs ${currentPlan.priceLKR.toLocaleString("en-LK")}`
+      : "Custom pricing";
+  const priceUsd = currentPlan.priceUSD != null ? `~$${currentPlan.priceUSD}` : null;
+  const aiUsageSummary =
+    currentPlan.aiMonthlyLimit != null
+      ? `${currentPlan.aiMonthlyLimit} AI Q&A interactions per month`
+      : "Unlimited AI Q&A interactions per month";
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -29,17 +39,22 @@ export default function BillingPage() {
               <CardContent>
                 <div className="mb-4">
                   <h3 className="text-2xl font-bold text-gray-900">
-                    {currentPlan.name}
+                    {currentPlan.label}
                   </h3>
                   <p className="text-3xl font-bold text-primary mt-2">
-                    ${currentPlan.price}
+                    {priceLkr}
                     <span className="text-base font-normal text-gray-600">
                       /month
                     </span>
                   </p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {formatPriceWithConversion(currentPlan.price)}
-                  </p>
+                  {priceUsd && (
+                    <p className="text-sm text-gray-500 mt-1">{priceUsd}</p>
+                  )}
+                  {currentPlan.highlight && (
+                    <p className="text-sm text-primary mt-2">
+                      {currentPlan.highlight}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2 mb-6">
@@ -51,9 +66,7 @@ export default function BillingPage() {
                   ))}
                   <div className="flex items-start gap-2">
                     <Check className="h-5 w-5 text-success mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-700">
-                      {currentPlan.monthlyAIQuestions} AI questions/month
-                    </span>
+                    <span className="text-gray-700">{aiUsageSummary}</span>
                   </div>
                 </div>
 

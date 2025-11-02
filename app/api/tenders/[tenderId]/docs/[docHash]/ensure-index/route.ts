@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { IndexArtifactStatus } from '@prisma/client'
+import { IndexArtifactStatus, UploadKind } from '@prisma/client'
 import { z } from 'zod'
 
 import { authOptions } from '@/lib/auth'
@@ -82,6 +82,8 @@ export async function POST(
             storageKey: true,
             size: true,
             tenderId: true,
+            kind: true,
+            mimeType: true,
           },
         },
       },
@@ -103,10 +105,101 @@ export async function POST(
         ? (extractedFile.metadata as JsonRecord)
         : null
     const approxBytes = resolveApproxBytes(metadata, extractedFile.upload?.size ?? null)
+    const uploadKind = extractedFile.upload?.kind ?? null
+    const uploadMime =
+      typeof extractedFile.upload?.mimeType === 'string'
+        ? extractedFile.upload.mimeType.toLowerCase()
+        : null
+    const metadataKind =
+      typeof metadata?.kind === 'string' ? String(metadata.kind).toLowerCase() : null
+    const metadataMime =
+      typeof metadata?.mimeType === 'string' ? String(metadata.mimeType).toLowerCase() : null
+    const isImageUpload =
+      uploadKind === UploadKind.image ||
+      metadataKind === UploadKind.image ||
+      metadataKind === 'image' ||
+      (uploadMime?.startsWith('image/') ?? false) ||
+      (metadataMime?.startsWith('image/') ?? false)
 
     const existingArtifact = await db.indexArtifact.findUnique({
       where: { docHash },
     })
+    const redis = getRedisClient()
+
+    if (isImageUpload) {
+      const artifactVersion = existingArtifact?.version ?? INDEX_ARTIFACT_VERSION
+      const storageKey = extractedFile.storageKey
+
+      let artifact = existingArtifact
+      if (!artifact) {
+        artifact = await db.indexArtifact.create({
+          data: {
+            docHash,
+            orgId: tenderAccess.organizationId,
+            tenderId: tenderAccess.tenderId,
+            version: artifactVersion,
+            status: IndexArtifactStatus.READY,
+            storageKey,
+            totalChunks: 0,
+            totalPages: 0,
+            bytesApprox: approxBytes,
+          },
+        })
+        console.log('[ensure-index] created READY artifact for image upload', {
+          artifactId: artifact.id,
+          docHash,
+        })
+      } else if (
+        artifact.status !== IndexArtifactStatus.READY ||
+        artifact.bytesApprox !== approxBytes ||
+        artifact.storageKey !== storageKey ||
+        artifact.totalChunks !== 0 ||
+        artifact.totalPages !== 0 ||
+        artifact.version !== artifactVersion
+      ) {
+        artifact = await db.indexArtifact.update({
+          where: { id: artifact.id },
+          data: {
+            status: IndexArtifactStatus.READY,
+            version: artifactVersion,
+            storageKey,
+            totalChunks: 0,
+            totalPages: 0,
+            bytesApprox: approxBytes,
+          },
+        })
+        console.log('[ensure-index] reset artifact to READY for image upload', {
+          artifactId: artifact.id,
+          docHash,
+        })
+      }
+
+      await writeIndexProgress(
+        redis,
+        docHash,
+        buildProgressSnapshot({
+          docHash,
+          phase: 'ready',
+          percent: 100,
+          batchesDone: 1,
+          totalBatches: 1,
+          message: 'Image uploads are stored but skipped for AI indexing',
+        }),
+      )
+
+      return NextResponse.json({
+        status: 'READY',
+        docHash,
+        fileId: extractedFile.id,
+        artifact: {
+          id: artifact.id,
+          storageKey: artifact.storageKey,
+          updatedAt: artifact.updatedAt.toISOString(),
+          version: artifact.version,
+          totalChunks: artifact.totalChunks,
+        },
+      })
+    }
 
     if (existingArtifact && existingArtifact.status === IndexArtifactStatus.READY && !body.forceRebuild) {
       console.log('[ensure-index] already READY', {
@@ -171,7 +264,6 @@ export async function POST(
       })
     }
 
-    const redis = getRedisClient()
     const lockKey = `lock:index:${docHash}`
     let lockValue = await redis.get(lockKey)
 

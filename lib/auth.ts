@@ -4,6 +4,7 @@ import bcrypt from 'bcrypt'
 import { z } from 'zod'
 
 import { db } from '@/lib/db'
+import { env } from '@/lib/env'
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -117,5 +118,5 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: 'jwt',
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: env.NEXTAUTH_SECRET,
 }

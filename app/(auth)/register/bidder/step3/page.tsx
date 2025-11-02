@@ -10,7 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
-import { PLANS, type PlanTier } from "@/lib/entitlements";
+import { PLAN_SPECS, type PlanTier } from "@/lib/entitlements";
+import {
+  getPlanStepperSteps,
+  normalizePlanTier,
+  planRequiresTeamSetup,
+  submitBidderRegistration,
+} from "@/lib/registration-flow";
 
 interface TeamMember {
   id: string;
@@ -22,7 +28,8 @@ interface TeamMember {
 
 export default function BidderRegistrationStep3() {
   const router = useRouter();
-  const [selectedPlan, setSelectedPlan] = useState<PlanTier>('Basic');
+  const [selectedPlan, setSelectedPlan] = useState<PlanTier>("FREE");
+  const [planInitialized, setPlanInitialized] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [formData, setFormData] = useState({
     name: "",
@@ -36,20 +43,27 @@ export default function BidderRegistrationStep3() {
   const [adminEmail, setAdminEmail] = useState("");
 
   useEffect(() => {
-    // Load plan from step 2 or URL params
-    const step2Data = localStorage.getItem("bidder_step2");
-    if (step2Data) {
-      const data = JSON.parse(step2Data);
-      // Check if plan was selected in pricing page
-      const urlParams = new URLSearchParams(window.location.search);
-      const planParam = urlParams.get('plan') as PlanTier;
-      if (planParam) {
-        setSelectedPlan(planParam);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const planFromUrl = normalizePlanTier(params.get("plan"));
+    if (planFromUrl) {
+      setSelectedPlan(planFromUrl);
+      sessionStorage.setItem("bidder_selected_plan", planFromUrl);
+      try { localStorage.setItem("bidder_selected_plan", planFromUrl); } catch {}
+    } else {
+      const storedPlanSession = normalizePlanTier(sessionStorage.getItem("bidder_selected_plan"));
+      const storedPlanLocal = normalizePlanTier(typeof window !== "undefined" ? localStorage.getItem("bidder_selected_plan") : null);
+      const resolved = storedPlanSession ?? storedPlanLocal;
+      if (resolved) {
+        setSelectedPlan(resolved);
       }
     }
 
     const step1Data = localStorage.getItem("bidder_step1");
-    if (step1Data) {
+  if (step1Data) {
       try {
         const data = JSON.parse(step1Data);
         if (data.email) {
@@ -59,12 +73,30 @@ export default function BidderRegistrationStep3() {
         console.error("Failed to parse step 1 data:", error);
       }
     }
+
+    setPlanInitialized(true);
   }, []);
 
-  const planFeatures = PLANS[selectedPlan];
-  const maxSeats = planFeatures.seats || 1;
+  useEffect(() => {
+    if (!planInitialized) {
+      return;
+    }
+
+    if (!planRequiresTeamSetup(selectedPlan)) {
+      router.replace(`/register/bidder/step2?plan=${encodeURIComponent(selectedPlan)}`);
+    }
+  }, [planInitialized, selectedPlan, router]);
+
+  const planSpec = PLAN_SPECS[selectedPlan];
+  const maxSeats = planSpec.seats ?? 1;
   const adminSeat = 1; // Admin is already registered in step 1
   const remainingSeats = Math.max(maxSeats - adminSeat - teamMembers.length, 0); // Remaining seats for team members
+  const stepperSteps = getPlanStepperSteps(selectedPlan);
+  const requiresTeamSetup = planRequiresTeamSetup(selectedPlan);
+
+  if (!planInitialized || !requiresTeamSetup) {
+    return null;
+  }
 
   const handleAddMember = (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,77 +156,28 @@ export default function BidderRegistrationStep3() {
     setErrorMessage(null);
 
     try {
-      const step1Raw = typeof window !== "undefined" ? localStorage.getItem("bidder_step1") : null;
-      const step2Raw = typeof window !== "undefined" ? localStorage.getItem("bidder_step2") : null;
+      const members = membersOverride ?? teamMembers;
+      const result = await submitBidderRegistration(
+        selectedPlan,
+        members.map((member) => ({
+          name: member.name,
+          email: member.email,
+          position: member.position,
+        }))
+      );
 
-      if (!step1Raw || !step2Raw) {
-        setErrorMessage("We couldn't find your earlier registration steps. Please restart the registration.");
+      if (result.status === "missing-data") {
+        setErrorMessage(result.errorMessage);
         router.push("/register/bidder/step1");
         return;
       }
 
-      const step1Data = JSON.parse(step1Raw);
-      const step2Data = JSON.parse(step2Raw);
-      const members = membersOverride ?? teamMembers;
-
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          flow: "bidder",
-          step1: step1Data,
-          step2: step2Data,
-          team: {
-            plan: selectedPlan,
-            teamMembers: members.map((member) => ({
-              name: member.name,
-              email: member.email,
-              position: member.position,
-            })),
-          },
-        }),
-      });
-
-      const data = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        details?: Array<{ message?: string }>;
-        pendingInvitations?: Array<unknown>;
-      };
-
-      if (!response.ok) {
-        const detailsList = Array.isArray(data?.details) ? data.details : [];
-        const detailsMessage =
-          detailsList.length > 0
-            ? detailsList
-                .map((issue) => issue?.message)
-                .filter(Boolean)
-                .join(" ")
-            : undefined;
-
-        setErrorMessage(
-          detailsMessage ||
-            data?.error ||
-            "Unable to complete registration. Please try again."
-        );
+      if (result.status === "error") {
+        setErrorMessage(result.errorMessage);
         return;
       }
 
-      localStorage.removeItem("bidder_step1");
-      localStorage.removeItem("bidder_step2");
-      localStorage.removeItem("bidder_step1_status");
-      localStorage.removeItem("bidder_step1_resume_token");
-      localStorage.removeItem("bidder_registration_summary");
-
-      const loginParams = new URLSearchParams({
-        registered: "bidder",
-        email: step1Data.email,
-        lockEmail: "true",
-      });
-      if ((data.pendingInvitations ?? []).length > 0) {
-        loginParams.set("invites", String((data.pendingInvitations ?? []).length));
-      }
-
-      router.push(`/login?${loginParams.toString()}`);
+      router.push(result.loginUrl);
     } catch (error) {
       console.error("Failed to complete registration:", error);
       setErrorMessage("Unexpected error completing registration. Please try again.");
@@ -208,7 +191,7 @@ export default function BidderRegistrationStep3() {
   };
 
   const handleBack = () => {
-    router.push("/register/bidder/step2");
+    router.push(`/register/bidder/step2?plan=${encodeURIComponent(selectedPlan)}`);
   };
 
   const handleSkip = () => {
@@ -222,7 +205,7 @@ export default function BidderRegistrationStep3() {
       <main className="flex-1 bg-slate-50 py-12">
         <div className="container mx-auto px-4 md:px-6">
           <div className="max-w-4xl mx-auto">
-            <Stepper currentStep={3} completedSteps={[1, 2]} />
+            <Stepper currentStep={3} completedSteps={[1, 2]} steps={stepperSteps} />
 
             <div className="bg-white rounded-2xl shadow-sm p-8 md:p-12">
               <div className="mb-8">
@@ -247,7 +230,7 @@ export default function BidderRegistrationStep3() {
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                   <div className="flex items-center gap-2 mb-2">
                     <CheckCircle className="h-5 w-5 text-blue-600" />
-                    <span className="font-semibold text-blue-900">Current Plan: {planFeatures.name}</span>
+                    <span className="font-semibold text-blue-900">Current Plan: {planSpec.label}</span>
                   </div>
                   <p className="text-sm text-blue-700">
                     You can invite up to <strong>{maxSeats - adminSeat}</strong> team members (admin seat already used). 

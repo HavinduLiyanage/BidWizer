@@ -2,12 +2,40 @@ import 'server-only'
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-import { readEnvVar } from '@/lib/env'
+import { env } from '@/lib/env'
 
 const DEFAULT_UPLOADS_BUCKET = 'tender-uploads'
 const DEFAULT_INDEX_BUCKET = 'tender-indexes'
 const bucketEnsurePromises = new Map<string, Promise<void>>()
-const DESIRED_BUCKET_FILE_SIZE_LIMIT = 524_288_000 // 500 MB
+const DEFAULT_BUCKET_FILE_SIZE_LIMIT = 524_288_000 // 500 MB
+
+function resolveDesiredBucketFileSizeLimit(): number | null {
+  const rawBytes = env.SUPABASE_OBJECT_MAX_BYTES
+  if (rawBytes && rawBytes.length > 0) {
+    const numeric = Number(rawBytes)
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      return numeric === 0 ? null : numeric
+    }
+    console.warn(
+      `[storage] Ignoring invalid SUPABASE_OBJECT_MAX_BYTES value "${rawBytes}", falling back to default`,
+    )
+  }
+
+  const rawMb = env.SUPABASE_OBJECT_MAX_MB
+  if (rawMb && rawMb.length > 0) {
+    const numeric = Number(rawMb)
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      return numeric === 0 ? null : numeric * 1024 * 1024
+    }
+    console.warn(
+      `[storage] Ignoring invalid SUPABASE_OBJECT_MAX_MB value "${rawMb}", falling back to default`,
+    )
+  }
+
+  return DEFAULT_BUCKET_FILE_SIZE_LIMIT
+}
+
+const DESIRED_BUCKET_FILE_SIZE_LIMIT = resolveDesiredBucketFileSizeLimit()
 
 type UploadBody =
   | File
@@ -23,10 +51,14 @@ function assertServerContext() {
   }
 }
 
-function resolveEnv(keys: string[], fallback: string): string {
+type StringEnvKey = {
+  [K in keyof typeof env]: typeof env[K] extends string | undefined ? K : never
+}[keyof typeof env]
+
+function resolveEnv(keys: StringEnvKey[], fallback: string): string {
   for (const key of keys) {
-    const value = readEnvVar(key)
-    if (value && value.length > 0) {
+    const value = env[key]
+    if (typeof value === 'string' && value.length > 0) {
       return value
     }
   }
@@ -36,8 +68,8 @@ function resolveEnv(keys: string[], fallback: string): string {
 export function createSupabaseServiceClient(): SupabaseClient {
   assertServerContext()
 
-  const supabaseUrl = readEnvVar('SUPABASE_URL')
-  const supabaseServiceRoleKey = readEnvVar('SUPABASE_SERVICE_ROLE_KEY')
+  const supabaseUrl = env.SUPABASE_URL
+  const supabaseServiceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     throw new Error('Supabase environment variables are not configured')
@@ -89,16 +121,25 @@ async function ensureBucketExists(client: SupabaseClient, bucket: string): Promi
         typeof sizeLimit === 'number' && Number.isFinite(sizeLimit) ? sizeLimit : null
       const desiredLimit = DESIRED_BUCKET_FILE_SIZE_LIMIT
       const shouldUpdate =
-        desiredLimit > 0
+        desiredLimit !== null
           ? currentLimit !== desiredLimit
           : currentLimit !== null && currentLimit > 0
 
       if (shouldUpdate) {
-        const { error: updateError } = await client.storage.updateBucket(bucket, {
+        const updateOptions: {
+          public: boolean
+          fileSizeLimit?: number
+          allowedMimeTypes?: string[]
+        } = {
           public: data.public,
-          fileSizeLimit: desiredLimit,
           allowedMimeTypes: data.allowed_mime_types ?? undefined,
-        })
+        }
+
+        if (desiredLimit !== null) {
+          updateOptions.fileSizeLimit = desiredLimit
+        }
+
+        const { error: updateError } = await client.storage.updateBucket(bucket, updateOptions)
 
         if (updateError) {
           if (isFileSizeLimitConstraint(updateError.message)) {
@@ -120,13 +161,13 @@ async function ensureBucketExists(client: SupabaseClient, bucket: string): Promi
       throw new Error(`Failed to verify Supabase bucket ${bucket}: ${error.message}`)
     }
 
-    const desiredOptions =
-      DESIRED_BUCKET_FILE_SIZE_LIMIT > 0
-        ? {
-            public: false,
-            fileSizeLimit: DESIRED_BUCKET_FILE_SIZE_LIMIT,
-          }
-        : { public: false }
+    const desiredOptions: { public: boolean; fileSizeLimit?: number } = {
+      public: false,
+    }
+
+    if (DESIRED_BUCKET_FILE_SIZE_LIMIT !== null) {
+      desiredOptions.fileSizeLimit = DESIRED_BUCKET_FILE_SIZE_LIMIT
+    }
 
     let { error: createError } = await client.storage.createBucket(bucket, desiredOptions)
 
@@ -212,6 +253,35 @@ export async function deleteSupabaseObject(bucket: string, storageKey: string): 
     throw new Error(
       `Failed to delete ${storageKey} from Supabase bucket ${bucket}: ${error.message}`,
     )
+  }
+}
+
+export interface StorageBucketKey {
+  bucket: string
+  key: string
+}
+
+export async function putJson(location: StorageBucketKey, payload: unknown): Promise<void> {
+  const serialized = Buffer.from(JSON.stringify(payload ?? {}, null, 2), 'utf8')
+  await uploadSupabaseObject(location.bucket, location.key, serialized, {
+    contentType: 'application/json',
+    cacheControl: '60',
+  })
+}
+
+export async function getJson<T = unknown>(location: StorageBucketKey): Promise<T | null> {
+  try {
+    const buffer = await downloadSupabaseObject(location.bucket, location.key)
+    if (buffer.length === 0) {
+      return null
+    }
+    return JSON.parse(buffer.toString('utf8')) as T
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+    if (message.includes('not found') || message.includes('no such file or directory')) {
+      return null
+    }
+    throw error
   }
 }
 

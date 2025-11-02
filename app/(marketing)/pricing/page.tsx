@@ -1,91 +1,72 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
 import { Play, Check } from 'lucide-react'
 import { motion } from 'framer-motion'
 import SiteHeader from '@/components/site-header'
 import SiteFooter from '@/components/site-footer'
+import { PLANS_ORDER, PLAN_SPECS, PlanTier, DEFAULT_TRIAL_DAYS } from '@/lib/entitlements'
 
-type Plan = {
-  name: string
-  price: number | string
-  period: string
-  features: string[]
-  popular: boolean
+const SIGNUP_PATH = '/register/bidder/step1'
+
+const formatLkr = (amount?: number) => {
+  if (amount == null) {
+    return null
+  }
+
+  return `Rs ${amount.toLocaleString('en-LK')}`
 }
 
-const pricingPlans: Plan[] = [
-  {
-    name: 'Basic Plan',
-    price: 20,
-    period: '/month',
-    features: [
-      '3 Seats total → 1 Admin (CEO) + 2 team members',
-      '120 AI Q&A interactions per month',
-      'Full access to all tender documents',
-      'Follow up to 5 publishers (email alerts)',
-      'Standard support (email + in-app chat)',
-      'Dashboard access with usage tracker',
-      'Company profile management'
-    ],
-    popular: false
-  },
-  {
-    name: 'Team Plan',
-    price: 35,
-    period: '/month',
-    features: [
-      '5 Seats total → 1 Admin (CEO) + 4 team members',
-      '300 AI Q&A interactions per month',
-      'Full access to all tender documents',
-      'Follow up to 15 publishers (email alerts)',
-      'Priority support (24-hour response)',
-      'Advanced dashboard with AI usage bar',
-      'Billing section & plan management'
-    ],
-    popular: true // this is your “Most popular” plan
-  },
-  {
-    name: 'Enterprise / Custom',
-    price: 'Contact for pricing',
-    period: '',
-    features: [
-      'Custom seat allocations',
-      'Higher AI usage limits & dedicated support',
-      'Advanced analytics & team reporting',
-      'Private tender hosting or integrations',
-      'Custom onboarding & training'
-    ],
-    popular: false
+const formatUsd = (amount?: number) => {
+  if (amount == null) {
+    return null
   }
-];
+
+  return `~$${amount}`
+}
+
+const getPlanCta = (id: PlanTier) => {
+  if (id === 'ENTERPRISE') {
+    return {
+      label: 'Contact us',
+      href: '/contact',
+    }
+  }
+
+  return {
+    label: id === 'FREE' ? 'Start free trial' : 'Get started',
+    href: `${SIGNUP_PATH}?plan=${id}`,
+  }
+}
+
+const planSpecs = PLANS_ORDER.map((id) => PLAN_SPECS[id])
 
 const faqs = [
   {
     question: 'Can I try before making a commitment?',
-    answer: 'Absolutely! We offer a 14-day free trial on all our paid plans. No credit card required, and you can upgrade, downgrade, or cancel anytime.'
+    answer: `Absolutely! Enjoy a ${DEFAULT_TRIAL_DAYS}-day free trial on our Freemium plan. No credit card required, and you can upgrade, downgrade, or cancel anytime.`,
   },
   {
     question: 'Do you support LKR as a billing currency?',
-    answer: 'Yes, we accept payments in both USD and LKR. Pricing will be automatically converted using the current exchange rate at the time of purchase.'
+    answer: 'Yes, we accept payments in both USD and LKR. Pricing will be automatically converted using the current exchange rate at the time of purchase.',
   },
   {
     question: 'Can I change my plan later?',
-    answer: 'Yes, you can upgrade or downgrade your plan at any time. Changes take effect immediately, and we will prorate any charges or credits to your account.'
+    answer: 'Yes, you can upgrade or downgrade your plan at any time. Changes take effect immediately, and we will prorate any charges or credits to your account.',
   },
   {
     question: 'Is my data safe?',
-    answer: 'Yes, we take data security very seriously. All data is encrypted in transit and at rest. We are compliant with industry security standards and conduct regular security audits.'
+    answer: 'Yes, we take data security very seriously. All data is encrypted in transit and at rest. We are compliant with industry security standards and conduct regular security audits.',
   },
   {
     question: 'What kind of AI tools is provided?',
-    answer: 'Our AI tools include document summarization, question answering with citations, compliance checking, bid writing assistance, and competitive analysis powered by advanced language models.'
-  }
+    answer: 'Our AI tools include document summarization, question answering with citations, compliance checking, bid writing assistance, and competitive analysis powered by advanced language models.',
+  },
 ]
 
 export default function PricingPage() {
-  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly')
+  const ctaFree = getPlanCta('FREE')
+  const visiblePlans = planSpecs.filter((plan) => plan.priceLKR != null)
 
   return (
     <>
@@ -107,10 +88,7 @@ export default function PricingPage() {
                 Discover opportunities, streamline bidding, and win more tenders with AI-powered insights.
                 Watch our demo to see how teams are transforming their tendering process.
               </p>
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <button className="btn btn-primary mt-6">Explore with plan</button>
               </motion.div>
 
@@ -131,131 +109,111 @@ export default function PricingPage() {
           </div>
         </section>
 
+        
+
         {/* Pricing Section */}
-        <section className="bg-blue-50 py-20">
+        <section className="bg-white py-20">
           <div className="container">
             <motion.div
-              className="text-center"
+              className="mx-auto max-w-3xl text-center"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.6 }}
             >
-              <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-                Pricing
-              </p>
-              <h2 className="mt-2 text-3xl font-bold uppercase text-navy-900 md:text-4xl">
-                SIMPLE, TRANSPARENT PRICING FOR SRI LANKAN BUSINESSES
+              <p className="text-xs font-semibold uppercase tracking-widest text-primary">Pricing</p>
+              <h2 className="mt-2 text-3xl font-bold text-navy-900 md:text-4xl">
+                Flexible plans for every bidding team
               </h2>
-              <p className="mx-auto mt-3 max-w-2xl text-slate-600">
+              <p className="mt-4 text-slate-600">
                 Choose the plan that fits your tendering needs
               </p>
-
-              {/* Billing Toggle */}
-              <div className="mt-8 inline-flex items-center gap-2 rounded-full bg-white p-1 shadow-sm">
-                <button
-                  onClick={() => setBillingPeriod('monthly')}
-                  className={`rounded-full px-6 py-2 text-sm font-semibold transition-colors ${
-                    billingPeriod === 'monthly'
-                      ? 'bg-primary text-white'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Monthly
-                </button>
-                <button
-                  onClick={() => setBillingPeriod('yearly')}
-                  className={`rounded-full px-6 py-2 text-sm font-semibold transition-colors ${
-                    billingPeriod === 'yearly'
-                      ? 'bg-primary text-white'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Yearly
-                </button>
-              </div>
             </motion.div>
 
             {/* Pricing Cards */}
-            <div className="mt-12 grid gap-6 md:grid-cols-3">
-              {pricingPlans.map((plan, idx) => (
-                <motion.div
-                  key={plan.name}
-                  className={`relative rounded-2xl bg-white p-8 shadow-sm ${
-                    plan.popular ? 'ring-2 ring-primary' : 'ring-1 ring-slate-200'
-                  }`}
-                  initial={{ opacity: 0, y: 30 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.6, delay: idx * 0.1 }}
-                  whileHover={{
-                    y: -8,
-                    boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
-                    transition: { duration: 0.3 }
-                  }}
-                >
-                  {plan.popular && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                      <span className="rounded-full bg-primary px-4 py-1 text-xs font-semibold text-white">
-                        Most Popular
-                      </span>
-                    </div>
-                  )}
+            <div className="mt-12 mx-auto grid max-w-6xl gap-8 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+              {visiblePlans.map((plan, idx) => {
+                const cta = getPlanCta(plan.id)
+                const priceLkr = formatLkr(plan.priceLKR)
+                const priceUsd = formatUsd(plan.priceUSD)
 
-                  <div className="text-center">
-                    <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-                      {plan.name}
-                    </h3>
-
-                    {/* --- FIXED PRICE RENDERING --- */}
-                    <div className="mt-4">
-                      {typeof plan.price === 'number' ? (
-                        <>
-                          <span className="text-5xl font-bold text-navy-900">
-                            ${plan.price}
-                          </span>
-                          <span className="text-slate-600">{plan.period}</span>
-                        </>
-                      ) : (
-                        <span className="text-xl font-semibold text-navy-900">
-                          {plan.price}
-                        </span>
-                      )}
-                    </div>
-                    {/* --- END FIX --- */}
-                  </div>
-
-                  <ul className="mt-8 space-y-4">
-                    {plan.features.map((feature, i) => (
-                      <li key={i} className="flex items-start gap-3">
-                        <Check className="mt-0.5 h-5 w-5 flex-shrink-0 text-primary" />
-                        <span className="text-sm text-slate-700">{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-
+                return (
                   <motion.div
-                    className="mt-8"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                    key={plan.id}
+                    className={`relative flex h-full flex-col rounded-2xl bg-white p-8 shadow-sm transition-shadow ${
+                      plan.isPopular ? 'ring-2 ring-primary' : 'ring-1 ring-slate-200'
+                    }`}
+                    initial={{ opacity: 0, y: 30 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.6, delay: idx * 0.1 }}
+                    whileHover={{
+                      y: -8,
+                      boxShadow: '0 20px 40px rgba(0,0,0,0.12)',
+                      transition: { duration: 0.3 },
+                    }}
                   >
-                    <Link
-                      href={
-                        plan.name.toLowerCase().includes('enterprise')
-                          ? '/contact'
-                          : `/register/bidder/step1?plan=${encodeURIComponent(plan.name)}`
-                      }
-                      className={`btn w-full ${
-                        plan.popular
-                          ? 'btn-primary'
-                          : 'border border-slate-300 bg-white text-navy-900 hover:bg-slate-50'
-                      }`}
-                    >
-                      {plan.name.toLowerCase().includes('enterprise') ? 'Contact us' : 'Get started'}
-                    </Link>
+                    {plan.isPopular && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                        <span className="rounded-full bg-primary px-4 py-1 text-xs font-semibold text-white">
+                          Most Popular
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="text-center">
+                      <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+                        {plan.label}
+                      </h3>
+                      {plan.highlight && (
+                        <p className="mt-2 text-sm text-primary/80">{plan.highlight}</p>
+                      )}
+                      <div className="mt-4 flex flex-col items-center gap-1">
+                        {priceLkr ? (
+                          <>
+                            <span className="text-4xl font-bold text-navy-900">{priceLkr}</span>
+                            <span className="text-xs uppercase tracking-widest text-slate-500">
+                              per month
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-xl font-semibold text-navy-900">Custom pricing</span>
+                        )}
+                        {priceUsd && (
+                          <span className="text-sm text-slate-500">{priceUsd}</span>
+                        )}
+                        {plan.trialDays && (
+                          <span className="text-xs text-slate-500">
+                            {plan.trialDays}-day free trial
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <ul className="mt-6 flex-1 space-y-3 overflow-y-auto pr-1 text-left">
+                      {plan.features.map((feature, i) => (
+                        <li key={i} className="flex items-start gap-3 text-sm text-slate-700">
+                          <Check className="mt-0.5 h-5 w-5 flex-shrink-0 text-primary" />
+                          <span>{feature}</span>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <motion.div className="mt-8" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                      <Link
+                        href={cta.href}
+                        className={`btn w-full ${
+                          plan.isPopular
+                            ? 'btn-primary'
+                            : 'border border-slate-300 bg-white text-navy-900 hover:bg-slate-50'
+                        }`}
+                      >
+                        {cta.label}
+                      </Link>
+                    </motion.div>
                   </motion.div>
-                </motion.div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </section>
@@ -355,11 +313,7 @@ export default function PricingPage() {
               <p className="mt-3 text-slate-600">
                 Our support team is always on hand to help you get started
               </p>
-              <motion.div
-                className="mt-6"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
+              <motion.div className="mt-6" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Link href="/contact" className="btn btn-primary">
                   Contact us
                 </Link>
@@ -383,13 +337,9 @@ export default function PricingPage() {
               <p className="mx-auto mt-4 max-w-2xl text-white/80">
                 Start using our tender management platform and see why hundreds of businesses trust BidWizer
               </p>
-              <motion.div
-                className="mt-8"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Link href="/register/bidder/step1" className="btn btn-primary">
-                  Start free account
+              <motion.div className="mt-8" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Link href={ctaFree.href} className="btn btn-primary">
+                  {ctaFree.label}
                 </Link>
               </motion.div>
             </motion.div>

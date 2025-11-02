@@ -50,7 +50,7 @@ async function testAuth() {
           about: 'An automation test company specialising in infrastructure projects.',
         },
         team: {
-          plan: 'Basic',
+          plan: 'PREMIUM',
           teamMembers: [
             {
               name: 'Team Mate',

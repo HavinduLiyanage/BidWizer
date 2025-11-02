@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { TenderStatus } from '@prisma/client'
+import { TenderStatus, UploadStatus } from '@prisma/client'
 
 import { db } from '@/lib/db'
 import { resolveUploadDownloadUrl } from '@/lib/uploads'
@@ -27,6 +27,9 @@ export async function GET(
         },
       },
       uploads: {
+        where: {
+          status: UploadStatus.COMPLETED,
+        },
         select: {
           id: true,
           originalName: true,

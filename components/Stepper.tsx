@@ -1,17 +1,25 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+interface StepDefinition {
+  number: 1 | 2 | 3;
+  label: string;
+}
+
 interface StepperProps {
   currentStep: 1 | 2 | 3;
   completedSteps?: number[];
+  steps?: StepDefinition[];
 }
 
-export function Stepper({ currentStep, completedSteps = [] }: StepperProps) {
-  const steps = [
+export function Stepper({ currentStep, completedSteps = [], steps }: StepperProps) {
+  const defaultSteps: StepDefinition[] = [
     { number: 1, label: "Account Setup" },
     { number: 2, label: "Company Profile" },
     { number: 3, label: "Team Invite" },
   ];
+
+  const renderedSteps = steps ?? defaultSteps;
 
   const isCompleted = (step: number) => completedSteps.includes(step);
   const isCurrent = (step: number) => step === currentStep;
@@ -19,7 +27,7 @@ export function Stepper({ currentStep, completedSteps = [] }: StepperProps) {
   return (
     <div className="w-full py-8">
       <div className="flex items-center justify-center">
-        {steps.map((step, index) => (
+        {renderedSteps.map((step, index) => (
           <div key={step.number} className="flex items-center">
             {/* Step Circle */}
             <div className="flex flex-col items-center">
@@ -54,7 +62,7 @@ export function Stepper({ currentStep, completedSteps = [] }: StepperProps) {
             </div>
 
             {/* Connector Line */}
-            {index < steps.length - 1 && (
+            {index < renderedSteps.length - 1 && (
               <div
                 className={cn(
                   "h-0.5 w-24 mx-4 transition-all",

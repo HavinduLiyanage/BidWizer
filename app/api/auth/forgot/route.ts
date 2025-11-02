@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
+import { env } from '@/lib/env'
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+const resend = new Resend(env.RESEND_API_KEY ?? '')
 
 const forgotSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <h2>Password Reset Request</h2>
               <p>You requested to reset your password. Click the link below to reset it:</p>
-              <a href="${process.env.NEXTAUTH_URL}/reset-password?token=${resetToken}" 
+              <a href="${env.NEXTAUTH_URL ?? 'undefined'}/reset-password?token=${resetToken}" 
                  style="background-color: #dc3545; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
                 Reset Password
               </a>

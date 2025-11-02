@@ -1,5 +1,3 @@
-'use server'
-
 import { createHash } from 'crypto'
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
@@ -8,6 +6,8 @@ import * as unzipper from 'unzipper'
 import { Prisma, UploadKind, UploadStatus } from '@prisma/client'
 
 import { db } from '@/lib/db'
+import { flags } from '@/lib/flags'
+import { enqueueManifestJob } from '@/lib/ingest/queues'
 import {
   downloadSupabaseObject,
   getSupabaseUploadsBucketName,
@@ -15,12 +15,12 @@ import {
 } from '@/lib/storage'
 
 export const MOCK_STORAGE_PREFIX = 'mock://'
-export const CHUNKED_STORAGE_PREFIX = 'chunked://'
+const CHUNKED_STORAGE_PREFIX = 'chunked://'
 const CHUNK_MANIFEST_VERSION = 1
 const MAX_ZIP_ENTRIES = 2000
 const DEFAULT_STORED_FILENAME = 'original.bin'
 
-function parseMockStorageKey(storageKey: string): { uploadId: string; filename: string } {
+export function parseMockStorageKey(storageKey: string): { uploadId: string; filename: string } {
   const withoutPrefix = storageKey.slice(MOCK_STORAGE_PREFIX.length)
   const [uploadId, ...rest] = withoutPrefix.split('/')
 
@@ -32,18 +32,18 @@ function parseMockStorageKey(storageKey: string): { uploadId: string; filename: 
   return { uploadId, filename }
 }
 
-async function resolveMockStoragePath(storageKey: string): Promise<string> {
+export async function resolveMockStoragePath(storageKey: string): Promise<string> {
   const { uploadId, filename } = parseMockStorageKey(storageKey)
   return join(process.cwd(), '.uploads', uploadId, filename)
 }
 
-async function writeMockStorageFile(storageKey: string, payload: Buffer): Promise<void> {
+export async function writeMockStorageFile(storageKey: string, payload: Buffer): Promise<void> {
   const filePath = await resolveMockStoragePath(storageKey)
   await mkdir(dirname(filePath), { recursive: true })
   await writeFile(filePath, payload)
 }
 
-function shouldFallbackToMockStorage(error: Error): boolean {
+export function shouldFallbackToMockStorage(error: Error): boolean {
   const message = error.message?.toLowerCase() ?? ''
   return (
     message.includes('maximum allowed size') ||
@@ -101,7 +101,7 @@ export async function loadUploadBuffer(
   return downloadSupabaseObject(bucketName, storageKey)
 }
 
-export async function triggerUploadIngestion(uploadId: string): Promise<void> {
+async function triggerLegacyUploadIngestion(uploadId: string): Promise<void> {
   if (!uploadId) {
     throw new Error('uploadId is required to trigger ingestion')
   }
@@ -123,6 +123,30 @@ export async function triggerUploadIngestion(uploadId: string): Promise<void> {
 
   if (!upload) {
     console.warn(`[uploads] ingestion skipped: upload ${uploadId} not found`)
+    return
+  }
+
+  if (upload.kind === UploadKind.image) {
+    const downloadUrl = await resolveUploadDownloadUrl({
+      id: upload.id,
+      storageKey: upload.storageKey,
+      url: upload.url,
+      filename: upload.filename,
+      originalName: upload.originalName,
+    })
+
+    await db.$transaction(async (tx) => {
+      await tx.extractedFile.deleteMany({ where: { uploadId: upload.id } })
+      await tx.upload.update({
+        where: { id: upload.id },
+        data: {
+          status: UploadStatus.COMPLETED,
+          error: null,
+          url: downloadUrl,
+        },
+      })
+    })
+
     return
   }
 
@@ -151,97 +175,101 @@ export async function triggerUploadIngestion(uploadId: string): Promise<void> {
         )
       }
 
-      if (limitedEntries.length > 0) {
-        const bucket = getSupabaseUploadsBucketName()
+      if (limitedEntries.length === 0) {
+        throw new Error(
+          'Zip archive did not contain any files. Ensure you have uploaded the full archive (including all parts if split).',
+        )
+      }
 
-        for (const entry of limitedEntries) {
-          const filename = entry.path.split('/').filter(Boolean).pop() ?? entry.path
-          const ext = filename.split('.').pop()?.toLowerCase() ?? ''
-          const isPdf = ext === 'pdf'
-          const metadata: Record<string, unknown> = {
-            path: entry.path,
-            size:
-              typeof entry.uncompressedSize === 'number'
-                ? entry.uncompressedSize
-                : null,
-            type: entry.type,
-          }
+      const bucket = getSupabaseUploadsBucketName()
 
-          let docHash: string
-          let storageKey: string | null = null
-          let storageBucket: string | null = null
+      for (const entry of limitedEntries) {
+        const filename = entry.path.split('/').filter(Boolean).pop() ?? entry.path
+        const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+        const isPdf = ext === 'pdf'
+        const metadata: Record<string, unknown> = {
+          path: entry.path,
+          size:
+            typeof entry.uncompressedSize === 'number'
+              ? entry.uncompressedSize
+              : null,
+          type: entry.type,
+        }
 
-          if (isPdf) {
-            const pdfBuffer = await entry.buffer()
-            docHash = createHash('sha256').update(pdfBuffer).digest('hex')
-            const objectKey = [
-              'tenders',
-              upload.tenderId,
-              'extracted',
-              upload.id,
-              `${docHash}.pdf`,
-            ]
-              .filter(Boolean)
-              .join('/')
+        let docHash: string
+        let storageKey: string | null = null
+        let storageBucket: string | null = null
 
-            try {
-              await uploadSupabaseObject(bucket, objectKey, pdfBuffer, {
-                contentType: 'application/pdf',
-                cacheControl: '86400',
-              })
+        if (isPdf) {
+          const pdfBuffer = await entry.buffer()
+          docHash = createHash('sha256').update(pdfBuffer).digest('hex')
+          const objectKey = [
+            'tenders',
+            upload.tenderId,
+            'extracted',
+            upload.id,
+            `${docHash}.pdf`,
+          ]
+            .filter(Boolean)
+            .join('/')
 
-              storageKey = objectKey
-              storageBucket = bucket
+          try {
+            await uploadSupabaseObject(bucket, objectKey, pdfBuffer, {
+              contentType: 'application/pdf',
+              cacheControl: '86400',
+            })
+
+            storageKey = objectKey
+            storageBucket = bucket
+            metadata.size = pdfBuffer.length
+            metadata.mimeType = 'application/pdf'
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              (isMockStorage || shouldFallbackToMockStorage(error))
+            ) {
+              console.warn(
+                `[uploads] Supabase upload failed for ${upload.id}, falling back to mock storage`,
+                {
+                  entry: entry.path,
+                  message: error.message,
+                },
+              )
+
+              const fallbackKey = `${MOCK_STORAGE_PREFIX}${upload.id}/${docHash}.pdf`
+              await writeMockStorageFile(fallbackKey, pdfBuffer)
+
+              storageKey = fallbackKey
+              storageBucket = null
               metadata.size = pdfBuffer.length
               metadata.mimeType = 'application/pdf'
-            } catch (error) {
-              if (
-                error instanceof Error &&
-                (isMockStorage || shouldFallbackToMockStorage(error))
-              ) {
-                console.warn(
-                  `[uploads] Supabase upload failed for ${upload.id}, falling back to mock storage`,
-                  {
-                    entry: entry.path,
-                    message: error.message,
-                  },
-                )
-
-                const fallbackKey = `${MOCK_STORAGE_PREFIX}${upload.id}/${docHash}.pdf`
-                await writeMockStorageFile(fallbackKey, pdfBuffer)
-
-                storageKey = fallbackKey
-                storageBucket = null
-                metadata.size = pdfBuffer.length
-                metadata.mimeType = 'application/pdf'
-                metadata.storageFallback = 'mock'
-              } else {
-                throw error
-              }
+              metadata.storageFallback = 'mock'
+            } else {
+              throw error
             }
-          } else {
-            const hashSource = `${upload.id}:${entry.path}:${entry.uncompressedSize ?? ''}`
-            docHash = createHash('sha256').update(hashSource).digest('hex')
           }
-
-          metadata.docHash = docHash
-          if (storageKey) {
-            metadata.storageKey = storageKey
-            metadata.storageBucket = storageBucket
-          }
-
-          extractedRecords.push({
-            filename,
-            page: null,
-            content: null,
-            metadata: metadata as Prisma.InputJsonValue,
-            tenderId: upload.tenderId,
-            uploadId: upload.id,
-            docHash,
-            storageBucket,
-            storageKey,
-          })
+        } else {
+          const hashSource = `${upload.id}:${entry.path}:${entry.uncompressedSize ?? ''}`
+          docHash = createHash('sha256').update(hashSource).digest('hex')
         }
+
+        metadata.docHash = docHash
+        if (storageKey) {
+          metadata.storageKey = storageKey
+          metadata.storageBucket = storageBucket
+        }
+
+        extractedRecords.push({
+          filename,
+          page: null,
+          content: null,
+          metadata: metadata as Prisma.InputJsonValue,
+          tenderId: upload.tenderId,
+          uploadId: upload.id,
+          docHash,
+          storageBucket,
+          storageKey,
+        })
       }
     } else {
       const bucket = upload.storageKey?.startsWith(MOCK_STORAGE_PREFIX)
@@ -272,6 +300,12 @@ export async function triggerUploadIngestion(uploadId: string): Promise<void> {
         storageBucket: bucket,
         storageKey: upload.storageKey ?? null,
       })
+    }
+
+    if (extractedRecords.length === 0) {
+      throw new Error(
+        'Upload did not produce any extractable documents. Please verify the file contents and retry.',
+      )
     }
 
     await db.$transaction(async (tx) => {
@@ -306,4 +340,50 @@ export async function triggerUploadIngestion(uploadId: string): Promise<void> {
       },
     })
   }
+}
+
+export async function triggerUploadIngestion(uploadId: string): Promise<void> {
+  if (flags.ingestionMode === 'lazy') {
+    await triggerLegacyUploadIngestion(uploadId)
+    return
+  }
+
+  const upload = await db.upload.findUnique({
+    where: { id: uploadId },
+    select: {
+      id: true,
+      tenderId: true,
+      kind: true,
+      tender: {
+        select: {
+          organizationId: true,
+        },
+      },
+    },
+  })
+
+  if (!upload) {
+    console.warn(`[uploads] eager ingestion skipped: upload ${uploadId} not found`)
+    return
+  }
+
+  const orgId = upload.tender?.organizationId
+  if (!orgId) {
+    console.warn(
+      `[uploads] eager ingestion fallback: upload ${uploadId} missing org id, using legacy ingestion`,
+    )
+    await triggerLegacyUploadIngestion(uploadId)
+    return
+  }
+
+  if (upload.kind === UploadKind.image) {
+    await triggerLegacyUploadIngestion(uploadId)
+    return
+  }
+
+  await enqueueManifestJob({
+    uploadId,
+    orgId,
+    tenderId: upload.tenderId,
+  })
 }

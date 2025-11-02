@@ -1,4 +1,4 @@
-import { readEnvVar } from '../env'
+import { env } from '../env'
 
 export const INDEX_ARTIFACT_VERSION = 1
 export const INDEX_ARTIFACT_FILENAME = 'index.v1.tar.gz'
@@ -23,4 +23,6 @@ export const PROGRESS_TTL_SECONDS = 12 * 60 * 60
 
 const DEFAULT_INDEX_QUEUE_NAME = 'tender-indexing'
 export const INDEX_QUEUE_NAME =
-  readEnvVar('BIDWIZER_INDEX_QUEUE') || DEFAULT_INDEX_QUEUE_NAME
+  env.BIDWIZER_INDEX_QUEUE && env.BIDWIZER_INDEX_QUEUE.length > 0
+    ? env.BIDWIZER_INDEX_QUEUE
+    : DEFAULT_INDEX_QUEUE_NAME

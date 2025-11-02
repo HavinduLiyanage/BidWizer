@@ -83,7 +83,15 @@ export function useEnsureDocIndex(
 
         return payload as {
           id?: string
-          sourceUpload?: { id?: string | null } | null
+          docHash?: string | null
+          metadata?: Record<string, unknown> | null
+          sourceUpload?:
+            | {
+                id?: string | null
+                kind?: string | null
+                mimeType?: string | null
+              }
+            | null
         }
       }
 
@@ -91,18 +99,65 @@ export function useEnsureDocIndex(
         id?: string
         docHash?: string | null
         metadata?: Record<string, unknown> | null
-        sourceUpload?: { id?: string | null } | null
+        sourceUpload?:
+          | {
+              id?: string | null
+              kind?: string | null
+              mimeType?: string | null
+            }
+          | null
       }) => {
+        const metadata =
+          payload?.metadata && typeof payload.metadata === 'object'
+            ? (payload.metadata as Record<string, unknown>)
+            : null
+        const normalizedKind = (() => {
+          const sourceKind =
+            typeof payload?.sourceUpload?.kind === 'string'
+              ? payload.sourceUpload.kind.toLowerCase()
+              : null
+          const metadataKind =
+            metadata && typeof metadata['kind'] === 'string'
+              ? String(metadata['kind']).toLowerCase()
+              : null
+          return sourceKind ?? metadataKind ?? null
+        })()
+        const normalizedMime = (() => {
+          const sourceMime =
+            typeof payload?.sourceUpload?.mimeType === 'string'
+              ? payload.sourceUpload.mimeType.toLowerCase()
+              : null
+          const metadataMime =
+            metadata && typeof metadata['mimeType'] === 'string'
+              ? String(metadata['mimeType']).toLowerCase()
+              : null
+          return sourceMime ?? metadataMime ?? null
+        })()
+        const isImageLike =
+          normalizedKind === 'image' ||
+          (normalizedMime !== null && normalizedMime.startsWith('image/'))
+        if (isImageLike) {
+          const unsupported = new Error(
+            'AI assistant is only available for PDF and DOCX files.',
+          ) as Error & { code?: string }
+          unsupported.code = 'UNSUPPORTED_FILE_TYPE'
+          throw unsupported
+        }
+
         const uploadId = payload?.sourceUpload?.id
         if (!uploadId) {
           throw new Error('Selected file has no source upload')
         }
-        const rawDocHash =
-          typeof payload?.docHash === 'string' && payload.docHash.length > 0
-            ? payload.docHash
-            : typeof payload?.metadata?.docHash === 'string'
-            ? String(payload.metadata.docHash)
-            : null
+        let rawDocHash: string | null = null
+        if (typeof payload?.docHash === 'string' && payload.docHash.length > 0) {
+          rawDocHash = payload.docHash
+        } else if (
+          metadata &&
+          typeof metadata['docHash'] === 'string' &&
+          (metadata['docHash'] as string).length > 0
+        ) {
+          rawDocHash = String(metadata['docHash'])
+        }
         if (!rawDocHash) {
           throw new Error('Selected file is missing a document hash')
         }
@@ -190,12 +245,22 @@ export function useEnsureDocIndex(
       } catch (error) {
         stopPolling()
         if (!cancelled) {
-          setState({
-            status: 'error',
-            docHash: cachedDocHash,
-            fileId: cachedFileId,
-            message: (error as Error).message ?? 'Unknown error',
-          })
+          const maybeUnsupported = error as Error & { code?: string }
+          if (maybeUnsupported?.code === 'UNSUPPORTED_FILE_TYPE') {
+            setState({
+              status: 'error',
+              docHash: undefined,
+              fileId: undefined,
+              message: maybeUnsupported.message,
+            })
+          } else {
+            setState({
+              status: 'error',
+              docHash: cachedDocHash,
+              fileId: cachedFileId,
+              message: (error as Error).message ?? 'Unknown error',
+            })
+          }
         }
       }
     }

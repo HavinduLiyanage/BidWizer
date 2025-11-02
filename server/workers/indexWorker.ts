@@ -15,6 +15,8 @@ import {
   writeIndexProgress,
 } from '../../lib/redis'
 import { loadUploadBuffer } from '../../lib/uploads'
+import { env } from '../../lib/env'
+import { startIngestWorkers } from './ingest'
 
 const CHUNK_SIZE = 1500
 const CHUNK_OVERLAP = 200
@@ -23,10 +25,6 @@ interface IndexJobData {
   tenderId: string
   fileId: string
   docHash: string
-}
-
-if (!process.env.PRISMA_DISABLE_PREPARED_STATEMENTS) {
-  process.env.PRISMA_DISABLE_PREPARED_STATEMENTS = 'true'
 }
 
 function adjustDatabaseUrlForPgBouncer(url: string | undefined): string | undefined {
@@ -51,9 +49,9 @@ function adjustDatabaseUrlForPgBouncer(url: string | undefined): string | undefi
   }
 }
 
-const prismaDatabaseUrl = adjustDatabaseUrlForPgBouncer(process.env.DATABASE_URL)
+const prismaDatabaseUrl = adjustDatabaseUrlForPgBouncer(env.DATABASE_URL)
 const prismaOptions: Prisma.PrismaClientOptions = {
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  log: env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
 }
 
 if (prismaDatabaseUrl) {
@@ -66,13 +64,15 @@ if (prismaDatabaseUrl) {
 
 const prisma = new PrismaClient(prismaOptions)
 
+startIngestWorkers()
+
 console.log('[worker] boot', {
   INDEX_QUEUE,
-  DATABASE_URL: Boolean(process.env.DATABASE_URL),
-  REDIS_URL: Boolean(process.env.REDIS_URL),
-  SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
-  SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-  OPENAI_API_KEY: Boolean(process.env.OPENAI_API_KEY),
+  DATABASE_URL: Boolean(env.DATABASE_URL),
+  REDIS_URL: Boolean(env.REDIS_URL ?? env.UPSTASH_REDIS_URL),
+  SUPABASE_URL: Boolean(env.SUPABASE_URL),
+  SUPABASE_SERVICE_ROLE_KEY: Boolean(env.SUPABASE_SERVICE_ROLE_KEY),
+  OPENAI_API_KEY: Boolean(env.OPENAI_API_KEY),
 })
 
 function startHeartbeat(redis: ReturnType<typeof getRedisClient>, docHash: string): NodeJS.Timeout {
