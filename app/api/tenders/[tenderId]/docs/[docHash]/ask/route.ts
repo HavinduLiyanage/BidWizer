@@ -41,18 +41,21 @@ export async function POST(
     const { tenderId, docHash } = paramsSchema.parse(context.params)
     const { question, fileId } = bodySchema.parse(await request.json())
 
-    const { organizationId } = await ensureTenderAccess(session.user.id, tenderId)
+    const access = await ensureTenderAccess(session.user.id, tenderId)
+    const ownerOrganizationId = access.organizationId
+    const viewerOrgId = access.viewerOrganizationId ?? access.organizationId
     const planTier = await enforceAccess({
-      orgId: organizationId,
+      orgId: viewerOrgId,
       feature: 'chat',
       tenderId,
+      userId: session.user.id,
     })
 
     const documentRecord = await db.document.findFirst({
       where: {
         docHash,
         tenderId,
-        orgId: organizationId,
+        orgId: ownerOrganizationId,
       },
       select: {
         id: true,
@@ -191,9 +194,9 @@ export async function POST(
     }))
 
     if (planTier === 'FREE') {
-      await incrementOrgTender(organizationId, tenderId, 'chat')
+      await incrementOrgTender(viewerOrgId, tenderId, 'chat')
     } else if (planTier === 'STANDARD' || planTier === 'PREMIUM') {
-      await incrementMonthly(organizationId, 'chat')
+      await incrementMonthly(viewerOrgId, 'chat')
     }
 
     return NextResponse.json({

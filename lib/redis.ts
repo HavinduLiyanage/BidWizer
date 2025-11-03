@@ -3,6 +3,7 @@ import 'server-only'
 import IORedis, { type Redis, type RedisOptions } from 'ioredis'
 
 import { env } from '@/lib/env'
+import { log } from '@/lib/log'
 import { PROGRESS_TTL_SECONDS } from '@/lib/indexing/constants'
 import type { IndexPhase, IndexProgressSnapshot, IndexResumeState } from '@/lib/indexing/types'
 
@@ -226,3 +227,48 @@ export function buildProgressSnapshot(params: {
 }
 
 export type { Redis }
+
+export async function withLock<T>(
+  key: string,
+  ttlMs: number,
+  work: () => Promise<T>,
+): Promise<T | null> {
+  const redis = getRedisClient()
+  const acquired = await redis.set(key, '1', 'PX', ttlMs, 'NX')
+
+  if (acquired !== 'OK') {
+    log('lock', 'acquire-skipped', { key })
+    return null
+  }
+
+  const heartbeatInterval = Math.max(1000, Math.floor(ttlMs / 2))
+  const heartbeat = setInterval(() => {
+    void redis
+      .pexpire(key, ttlMs)
+      .then((extended) => {
+        if (extended) {
+          log('lock', 'heartbeat', { key, ttlMs })
+        } else {
+          log('lock', 'heartbeat-missed', { key })
+        }
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        log('lock', 'heartbeat-error', { key, error: message })
+      })
+  }, heartbeatInterval)
+
+  try {
+    const result = await work()
+    return result
+  } finally {
+    clearInterval(heartbeat)
+    try {
+      await redis.del(key)
+      log('lock', 'released', { key })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      log('lock', 'release-error', { key, error: message })
+    }
+  }
+}

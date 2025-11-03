@@ -2,13 +2,21 @@ import { UploadKind, UploadStatus, DocStatus, PrismaClient } from '@prisma/clien
 import { Worker, type Job } from 'bullmq'
 import * as unzipper from 'unzipper'
 
+import { log } from '@/lib/log'
 import { computeDocumentPriority } from '@/lib/ingest/priority'
 import { buildDocumentStoragePaths, manifestKey } from '@/lib/ingest/paths'
-import { enqueueExtractJob, QUEUE_NAMES } from '@/lib/ingest/queues'
+import {
+  enqueueChunkJob,
+  enqueueEmbedJob,
+  enqueueExtractJob,
+  enqueueSummaryJob,
+  QUEUE_NAMES,
+} from '@/lib/ingest/queues'
 import { probePdf, hashBuffer } from '@/lib/ingest/pdf'
 import type { ManifestDocumentRecord, ManifestJobPayload } from '@/lib/ingest/types'
 import {
   getSupabaseIndexBucketName,
+  exists,
   putJson,
   uploadSupabaseObject,
 } from '@/lib/storage'
@@ -27,6 +35,17 @@ const INDEX_BUCKET = getSupabaseIndexBucketName()
 
 const prisma = new PrismaClient()
 
+type DocumentQueueEntry = {
+  id: string
+  docHash: string
+  filename: string
+  bytes: number
+  storage: ManifestDocumentRecord['storage']
+  pages: number | null
+  hasText: boolean | null
+  status: DocStatus
+}
+
 export function startManifestWorker(): Worker<ManifestJobPayload> {
   return new Worker<ManifestJobPayload>(
     QUEUE_NAMES.manifest,
@@ -42,6 +61,8 @@ export function startManifestWorker(): Worker<ManifestJobPayload> {
 
 async function processManifestJob(job: Job<ManifestJobPayload>): Promise<void> {
   const { uploadId, tenderId, orgId } = job.data
+  const baseMeta = { uploadId, tenderId, orgId, jobId: job.id ?? null }
+  log('ingest:manifest', 'starting', baseMeta)
 
   const upload = await prisma.upload.findUnique({
     where: { id: uploadId },
@@ -60,7 +81,7 @@ async function processManifestJob(job: Job<ManifestJobPayload>): Promise<void> {
   })
 
   if (!upload || upload.tenderId !== tenderId) {
-    console.warn('[manifest-worker] upload missing or mismatched', { uploadId, tenderId })
+    log('ingest:manifest', 'upload-missing', { ...baseMeta })
     return
   }
 
@@ -85,15 +106,13 @@ async function processManifestJob(job: Job<ManifestJobPayload>): Promise<void> {
       })
     })
 
-    await putJson(
-      { bucket: INDEX_BUCKET, key: manifestKey(orgId, tenderId) },
-      {
-        uploadId,
-        generatedAt: new Date().toISOString(),
-        documents: [],
-      },
-    )
+    await putJson(manifestKey(orgId, tenderId), {
+      uploadId,
+      generatedAt: new Date().toISOString(),
+      documents: [],
+    })
 
+    log('ingest:manifest', 'completed', { ...baseMeta, documents: 0 })
     return
   }
 
@@ -102,15 +121,7 @@ async function processManifestJob(job: Job<ManifestJobPayload>): Promise<void> {
 
     const manifestEntries: ManifestDocumentRecord[] = []
     const extractedRecords: Parameters<typeof prisma.extractedFile.createMany>[0]['data'] = []
-    const documentsToQueue: Array<{
-      id: string
-      docHash: string
-      filename: string
-      bytes: number
-      storage: ManifestDocumentRecord['storage']
-      pages: number | null
-      hasText: boolean | null
-    }> = []
+    const documentsToQueue: DocumentQueueEntry[] = []
 
     if (upload.kind === UploadKind.zip) {
       const directory = await unzipper.Open.buffer(payload)
@@ -118,9 +129,11 @@ async function processManifestJob(job: Job<ManifestJobPayload>): Promise<void> {
       const limitedEntries = entries.slice(0, MAX_ZIP_ENTRIES)
 
       if (entries.length > MAX_ZIP_ENTRIES) {
-        console.warn(
-          `[manifest-worker] zip entries truncated for upload ${uploadId}: ${entries.length} -> ${MAX_ZIP_ENTRIES}`,
-        )
+        log('ingest:manifest', 'zip-truncated', {
+          ...baseMeta,
+          totalEntries: entries.length,
+          processedEntries: limitedEntries.length,
+        })
       }
 
       if (limitedEntries.length === 0) {
@@ -233,6 +246,7 @@ async function processManifestJob(job: Job<ManifestJobPayload>): Promise<void> {
           storage: storagePaths,
           pages: probe.pages,
           hasText: probe.hasText,
+          status: document.status,
         })
       }
     } else {
@@ -329,6 +343,7 @@ async function processManifestJob(job: Job<ManifestJobPayload>): Promise<void> {
         storage: storagePaths,
         pages: probe.pages,
         hasText: probe.hasText,
+        status: document.status,
       })
     }
 
@@ -346,41 +361,91 @@ async function processManifestJob(job: Job<ManifestJobPayload>): Promise<void> {
       })
     })
 
-    await putJson(
-      { bucket: INDEX_BUCKET, key: manifestKey(orgId, tenderId) },
-      {
-        uploadId,
-        generatedAt: new Date().toISOString(),
-        documents: manifestEntries.map((entry) => ({
-          documentId: entry.documentId,
-          fileName: entry.filename,
-          bytes: entry.bytes,
-          mime: entry.mime,
-          docHash: entry.docHash,
-          hasText: entry.hasText ?? null,
-          pageCount: entry.pages ?? null,
-          status: entry.status,
-        })),
-      },
-    )
+    await putJson(manifestKey(orgId, tenderId), {
+      uploadId,
+      generatedAt: new Date().toISOString(),
+      documents: manifestEntries.map((entry) => ({
+        documentId: entry.documentId,
+        fileName: entry.filename,
+        bytes: entry.bytes,
+        mime: entry.mime,
+        docHash: entry.docHash,
+        hasText: entry.hasText ?? null,
+        pageCount: entry.pages ?? null,
+        status: entry.status,
+      })),
+    })
+
+    let queuedCount = 0
+    let skippedCount = 0
 
     for (const entry of documentsToQueue) {
+      const decision = await determineNextStage(entry)
+      if (decision.kind === null) {
+        skippedCount += 1
+        continue
+      }
+
       const priority = computeDocumentPriority(entry.filename, entry.bytes)
-      await enqueueExtractJob(
-        {
-          orgId,
-          tenderId,
-          documentId: entry.id,
-          docHash: entry.docHash,
-          storage: entry.storage,
-          uploadId,
-          filename: entry.filename,
-        },
-        { priority },
-      )
+      const basePayload = {
+        orgId,
+        tenderId,
+        documentId: entry.id,
+        docHash: entry.docHash,
+        storage: entry.storage,
+        uploadId,
+        filename: entry.filename,
+      }
+
+      switch (decision.kind) {
+        case 'extract': {
+          await enqueueExtractJob(basePayload, { priority })
+          break
+        }
+        case 'chunk': {
+          await enqueueChunkJob(
+            {
+              ...basePayload,
+              extractedPages: entry.pages ?? 0,
+            },
+            { priority },
+          )
+          break
+        }
+        case 'embed': {
+          await enqueueEmbedJob(
+            {
+              ...basePayload,
+              chunkCount: decision.chunkCount,
+            },
+            { priority },
+          )
+          break
+        }
+        case 'summary': {
+          await enqueueSummaryJob(
+            {
+              ...basePayload,
+              chunkCount: decision.sectionCount,
+            },
+            { priority },
+          )
+          break
+        }
+      }
+
+      queuedCount += 1
     }
+
+    log('ingest:manifest', 'queue-summary', {
+      ...baseMeta,
+      documents: documentsToQueue.length,
+      queued: queuedCount,
+      skipped: skippedCount,
+    })
   } catch (error) {
-    console.error('[manifest-worker] failed', { uploadId, error })
+    const message = error instanceof Error ? error.message : String(error)
+    log('ingest:manifest', 'error', { ...baseMeta, error: message })
     await prisma.upload.update({
       where: { id: uploadId },
       data: {
@@ -389,4 +454,39 @@ async function processManifestJob(job: Job<ManifestJobPayload>): Promise<void> {
       },
     })
   }
+}
+
+type StageDecision =
+  | { kind: 'extract' }
+  | { kind: 'chunk' }
+  | { kind: 'embed'; chunkCount: number }
+  | { kind: 'summary'; sectionCount: number }
+  | { kind: null }
+
+async function determineNextStage(entry: DocumentQueueEntry): Promise<StageDecision> {
+  if (entry.status === DocStatus.READY) {
+    return { kind: null }
+  }
+
+  const extractedExists = await exists(entry.storage.extractedKey)
+  if (!extractedExists) {
+    return { kind: 'extract' }
+  }
+
+  const chunksExists = await exists(entry.storage.chunksKey)
+  if (!chunksExists) {
+    return { kind: 'chunk' }
+  }
+
+  const sectionCount = await prisma.documentSection.count({ where: { documentId: entry.id } })
+  if (sectionCount === 0) {
+    return { kind: 'embed', chunkCount: 0 }
+  }
+
+  const summaryExists = await exists(entry.storage.summaryKey)
+  if (!summaryExists) {
+    return { kind: 'summary', sectionCount }
+  }
+
+  return { kind: null }
 }

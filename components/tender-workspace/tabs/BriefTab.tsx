@@ -119,11 +119,13 @@ export function BriefTab({ tenderId, selectedFileId }: BriefTabProps) {
             : "No indexed content for this file.",
         );
       } else {
-        throw new Error(
-          typeof payload?.error === "string"
+        const errorMessage =
+          typeof payload?.message === "string" && payload.message.trim().length > 0
+            ? payload.message
+            : typeof payload?.error === "string" && payload.error.trim().length > 0
             ? payload.error
-            : `Brief endpoint returned ${response.status}`,
-        );
+            : `Brief endpoint returned ${response.status}`;
+        throw new Error(errorMessage);
       }
     } catch (error) {
       console.error("Brief generation failed:", error);
@@ -144,14 +146,15 @@ export function BriefTab({ tenderId, selectedFileId }: BriefTabProps) {
           Brief is generated from the <strong>open PDF</strong> only.
         </p>
         {index.status === "preparing" && (
-          <p className="text-[10px] text-gray-500">Preparing index...</p>
+          <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span>Indexing in progress…</span>
+          </div>
         )}
         {index.status === "error" && (
-          <div className="flex items-center gap-2 rounded-md border border-red-100 bg-red-50 px-3 py-2">
-            <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
-            <p className="text-[10px] text-red-600">
-              {index.message ?? "Unable to prepare document index."}
-            </p>
+          <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            <span>{index.message ?? "Unable to prepare document index."}</span>
           </div>
         )}
 

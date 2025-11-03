@@ -3,6 +3,12 @@ import 'server-only'
 import { prisma } from '@/lib/db'
 import { PLAN_SPECS, type PlanTier } from '@/lib/entitlements'
 import { getOrCreateMonthlyUsage, getOrCreateOrgTenderUsage } from '@/lib/usage'
+import { flags } from '@/lib/flags'
+import { ensureActiveSubscriptionForOrg } from '@/lib/subscription'
+
+export function planLimitsEnabled(): boolean {
+  return flags.planEnforcement !== false
+}
 
 export class PlanError extends Error {
   code: 'PAGE_LOCKED' | 'PLAN_LIMIT_REACHED' | 'UPGRADE_REQUIRED' | 'TRIAL_EXPIRED'
@@ -21,13 +27,26 @@ export async function enforceAccess(params: {
   feature: Feature
   page?: number
   tenderId?: string
+  userId?: string
 }): Promise<PlanTier> {
   const org = await prisma.organization.findUnique({ where: { id: params.orgId } })
   if (!org) {
     throw new PlanError('UPGRADE_REQUIRED', 'Org not found')
   }
-  const tier = org.planTier as PlanTier
+  const tier = await ensureActiveSubscriptionForOrg(org.id, {
+    preferredTier: org.planTier as PlanTier,
+    userId: params.userId,
+  })
   const spec = PLAN_SPECS[tier]
+
+  if (!planLimitsEnabled()) {
+    console.log('[plan] enforcement disabled', {
+      orgId: params.orgId,
+      feature: params.feature,
+      tier,
+    })
+    return tier
+  }
 
   if (tier === 'FREE' && org.planExpiresAt && org.planExpiresAt < new Date()) {
     throw new PlanError('TRIAL_EXPIRED', 'Trial ended. Upgrade to continue.')

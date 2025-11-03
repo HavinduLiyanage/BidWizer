@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { IndexArtifactStatus } from '@prisma/client'
+import { DocStatus } from '@prisma/client'
 import { z } from 'zod'
 
 import { authOptions } from '@/lib/auth'
@@ -34,29 +34,41 @@ export async function POST(
 
     const { tenderId, docHash } = paramsSchema.parse(context.params)
     const { length, fileId } = bodySchema.parse(await request.json())
-    const { organizationId } = await ensureTenderAccess(session.user.id, tenderId)
+    const access = await ensureTenderAccess(session.user.id, tenderId)
+    const ownerOrganizationId = access.organizationId
+    const viewerOrgId = access.viewerOrganizationId ?? access.organizationId
     const planTier = await enforceAccess({
-      orgId: organizationId,
+      orgId: viewerOrgId,
       feature: 'brief',
       tenderId,
+      userId: session.user.id,
     })
 
-    const artifact = await db.indexArtifact.findUnique({
-      where: { docHash },
-      select: { tenderId: true, status: true },
+    const document = await db.document.findFirst({
+      where: {
+        docHash,
+        tenderId,
+        orgId: ownerOrganizationId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
     })
-    if (!artifact || artifact.tenderId !== tenderId) {
+
+    if (!document) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 })
     }
-    if (artifact.status !== IndexArtifactStatus.READY) {
+
+    if (document.status !== DocStatus.READY) {
       return NextResponse.json(
         { error: 'Document index is not ready' },
-        { status: 422 },
+        { status: 409 },
       )
     }
 
     const extractedFile = await db.extractedFile.findFirst({
-      where: { id: fileId, tenderId },
+      where: { id: fileId, tenderId, docHash },
       select: { id: true, filename: true },
     })
     if (!extractedFile) {
@@ -70,7 +82,7 @@ export async function POST(
       'Provide a structured tender brief covering purpose, key requirements, eligibility, submission details, and risks.'
     const chunks = await retrieveChunksFromFile({
       tenderId,
-      fileId: extractedFile.id,
+      documentId: document.id,
       question: retrievalQuestion,
       k: 18,
     })
@@ -144,9 +156,9 @@ export async function POST(
     }
 
     if (planTier === 'FREE') {
-      await incrementOrgTender(organizationId, tenderId, 'brief')
+      await incrementOrgTender(viewerOrgId, tenderId, 'brief')
     } else if (planTier === 'STANDARD' || planTier === 'PREMIUM') {
-      await incrementMonthly(organizationId, 'brief')
+      await incrementMonthly(viewerOrgId, 'brief')
     }
 
     return NextResponse.json({

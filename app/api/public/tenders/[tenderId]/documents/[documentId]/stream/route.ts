@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { loadUploadBuffer } from "@/lib/uploads";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const paramsSchema = z.object({
   tenderId: z.string().min(1, "Tender id is required"),
@@ -72,7 +73,10 @@ async function downloadUploadPayload(upload: {
   }
 
   if (upload.url) {
-    const response = await fetch(upload.url);
+    const response = await fetch(upload.url, {
+      cache: "no-store",
+      next: { revalidate: 0 },
+    });
     if (!response.ok) {
       throw new Error(`Failed to download file (${response.status})`);
     }

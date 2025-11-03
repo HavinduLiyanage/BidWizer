@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Send, Loader2, FileText } from "lucide-react";
+import { Send, Loader2, FileText, AlertTriangle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -105,9 +105,13 @@ export function ChatTab({ tenderId, selectedFileId }: ChatTabProps) {
           assistantContent = payload.error;
         }
       } else {
-        throw new Error(
-          typeof payload?.error === "string" ? payload.error : "Request failed",
-        );
+        const errorMessage =
+          typeof payload?.message === "string" && payload.message.trim().length > 0
+            ? payload.message
+            : typeof payload?.error === "string" && payload.error.trim().length > 0
+            ? payload.error
+            : "Request failed";
+        throw new Error(errorMessage);
       }
 
       const assistant: Message = {
@@ -150,12 +154,16 @@ export function ChatTab({ tenderId, selectedFileId }: ChatTabProps) {
           Chatting with the <strong>open file</strong> only.
         </p>
         {index.status === "preparing" && (
-          <p className="mt-1 text-[10px] text-gray-500">Preparing index...</p>
+          <div className="mt-2 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span>Indexing in progress…</span>
+          </div>
         )}
         {index.status === "error" && (
-          <p className="mt-1 text-[10px] text-red-600">
-            Index error: {index.message ?? "Unknown error"}
-          </p>
+          <div className="mt-2 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            <span>Index error: {index.message ?? "Unknown error"}</span>
+          </div>
         )}
       </div>
 

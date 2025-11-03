@@ -1,4 +1,13 @@
-import 'server-only'
+declare const window: unknown
+
+if (typeof window === 'undefined') {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('server-only')
+  } catch {
+    // noop when executing in non-Next runtimes (e.g. CLI scripts)
+  }
+}
 
 import { Prisma, PrismaClient } from '@prisma/client'
 

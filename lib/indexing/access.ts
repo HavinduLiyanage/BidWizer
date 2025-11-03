@@ -7,6 +7,7 @@ import { assertOrgAccess, db } from '@/lib/db'
 export interface TenderAccessResult {
   tenderId: string
   organizationId: string
+  viewerOrganizationId: string
 }
 
 export async function ensureTenderAccess(
@@ -27,7 +28,11 @@ export async function ensureTenderAccess(
 
   try {
     await assertOrgAccess(userId, tender.organizationId)
-    return { tenderId: tender.id, organizationId: tender.organizationId }
+    return {
+      tenderId: tender.id,
+      organizationId: tender.organizationId,
+      viewerOrganizationId: tender.organizationId,
+    }
   } catch (error) {
     if (
       allowPublishedRead &&
@@ -35,11 +40,18 @@ export async function ensureTenderAccess(
     ) {
       const membership = await db.orgMember.findFirst({
         where: { userId },
-        select: { organization: { select: { type: true } } },
+        select: {
+          organizationId: true,
+          organization: { select: { type: true } },
+        },
       })
 
       if (membership?.organization?.type === OrganizationType.BIDDER) {
-        return { tenderId: tender.id, organizationId: tender.organizationId }
+        return {
+          tenderId: tender.id,
+          organizationId: tender.organizationId,
+          viewerOrganizationId: membership.organizationId,
+        }
       }
     }
 

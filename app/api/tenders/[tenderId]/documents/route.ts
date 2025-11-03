@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { db } from "@/lib/db";
 import { authOptions } from "@/lib/auth";
+import { ensureTenderAccess } from "@/lib/indexing/access";
 import type { TenderDocumentNode } from "@/types/tender-documents";
 
 type DocumentNode = TenderDocumentNode;
@@ -155,6 +156,8 @@ export async function GET(
 
     const { tenderId } = paramsSchema.parse(context.params);
 
+    await ensureTenderAccess(session.user.id, tenderId);
+
     const tender = await db.tender.findUnique({
       where: { id: tenderId },
       select: {
@@ -185,20 +188,6 @@ export async function GET(
 
     if (!tender) {
       return NextResponse.json({ error: "Tender not found" }, { status: 404 });
-    }
-
-    const membership = await db.orgMember.findUnique({
-      where: {
-        userId_organizationId: {
-          userId: session.user.id,
-          organizationId: tender.organizationId,
-        },
-      },
-      select: { id: true },
-    });
-
-    if (!membership) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const root: DocumentNode = {

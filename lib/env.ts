@@ -27,7 +27,7 @@ const schema = z.object({
   RESEND_API_KEY: z.string().trim().optional(),
 
   // Feature flags / product
-  PLAN_ENFORCEMENT_ENABLED: z.coerce.boolean().default(true),
+  PLAN_ENFORCEMENT_ENABLED: z.coerce.boolean().default(false),
   WATERMARK_ENABLED: z.coerce.boolean().default(false),
   INGESTION_MODE: z.enum(['eager', 'lazy']).default('eager'),
   RETRIEVAL_TOP_K: z.coerce.number().default(8),

@@ -256,22 +256,70 @@ export async function deleteSupabaseObject(bucket: string, storageKey: string): 
   }
 }
 
-export interface StorageBucketKey {
-  bucket: string
-  key: string
+function normalizeStoragePath(path: string): { directory: string; name: string; fullPath: string } {
+  const trimmed = path.replace(/^\/+/, '').replace(/\/\/+/g, '/')
+  const idx = trimmed.lastIndexOf('/')
+  if (idx === -1) {
+    return { directory: '', name: trimmed, fullPath: trimmed }
+  }
+  return {
+    directory: trimmed.slice(0, idx),
+    name: trimmed.slice(idx + 1),
+    fullPath: trimmed,
+  }
 }
 
-export async function putJson(location: StorageBucketKey, payload: unknown): Promise<void> {
-  const serialized = Buffer.from(JSON.stringify(payload ?? {}, null, 2), 'utf8')
-  await uploadSupabaseObject(location.bucket, location.key, serialized, {
+export async function exists(path: string): Promise<boolean> {
+  const { directory, name, fullPath } = normalizeStoragePath(path)
+  if (!name) {
+    return false
+  }
+
+  const bucket = getSupabaseIndexBucketName()
+  const client = createSupabaseServiceClient()
+  try {
+    const { data, error } = await client.storage
+      .from(bucket)
+      .list(directory || undefined, { limit: 1, search: name })
+
+    if (error) {
+      if (isBucketMissing(error.message)) {
+        return false
+      }
+      throw new Error(
+        `Failed to check existence of ${fullPath} in Supabase bucket ${bucket}: ${error.message}`,
+      )
+    }
+
+    return Array.isArray(data) && data.some((entry) => entry.name === name)
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+    if (
+      message.includes('unexpected token') ||
+      message.includes('<html') ||
+      message.includes('bad request')
+    ) {
+      return false
+    }
+    throw new Error(
+      `Failed to check existence of ${fullPath} in Supabase bucket ${bucket}: ${message}`,
+    )
+  }
+}
+
+export async function putJson(path: string, obj: unknown): Promise<void> {
+  const { fullPath } = normalizeStoragePath(path)
+  const payload = Buffer.from(JSON.stringify(obj ?? {}, null, 2), 'utf8')
+  await uploadSupabaseObject(getSupabaseIndexBucketName(), fullPath, payload, {
     contentType: 'application/json',
     cacheControl: '60',
   })
 }
 
-export async function getJson<T = unknown>(location: StorageBucketKey): Promise<T | null> {
+export async function getJson<T = unknown>(path: string): Promise<T | null> {
+  const { fullPath } = normalizeStoragePath(path)
   try {
-    const buffer = await downloadSupabaseObject(location.bucket, location.key)
+    const buffer = await downloadSupabaseObject(getSupabaseIndexBucketName(), fullPath)
     if (buffer.length === 0) {
       return null
     }

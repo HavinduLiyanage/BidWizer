@@ -6,6 +6,7 @@ import { PLAN_SPECS, type PlanTier, DEFAULT_TRIAL_DAYS } from '@/lib/entitlement
 import { db } from '@/lib/db'
 import { sendInvitationEmail, sendVerificationEmail } from '@/lib/email'
 import { env } from '@/lib/env'
+import { ensureActiveSubscriptionForOrg } from '@/lib/subscription'
 const PLAN_OPTIONS = ['FREE', 'STANDARD', 'PREMIUM', 'ENTERPRISE'] as const satisfies readonly PlanTier[]
 
 function parsePlanTier(value: string | null | undefined): PlanTier | null {
@@ -251,6 +252,11 @@ async function handleBidderRegistration(rawBody: unknown, selectedPlan?: PlanTie
     }
   )
 
+  await ensureActiveSubscriptionForOrg(organization.id, {
+    preferredTier: planTier,
+    userId: user.id,
+  })
+
   await Promise.all(
     invitations.map((invitation) =>
       sendInvitationEmail({
@@ -363,6 +369,11 @@ async function handlePublisherRegistration(rawBody: unknown, selectedPlan?: Plan
     return { user, organization, verificationToken }
   })
 
+  await ensureActiveSubscriptionForOrg(organization.id, {
+    preferredTier: planTier,
+    userId: user.id,
+  })
+
   await sendVerificationEmail(data.email, verificationToken.token)
 
   const response: Record<string, unknown> = {
@@ -411,7 +422,7 @@ async function handleLegacyRegistration(rawBody: unknown, selectedPlan?: PlanTie
   const hashedPassword = await bcrypt.hash(password, 12)
   const organizationSlug = await generateOrganizationSlug(name ? `${name} Org` : email.split('@')[0])
 
-  const { user, verificationToken } = await db.$transaction(async (tx) => {
+  const { user, organization, verificationToken } = await db.$transaction(async (tx) => {
     const newUser = await tx.user.create({
       data: {
         email,
@@ -449,10 +460,15 @@ async function handleLegacyRegistration(rawBody: unknown, selectedPlan?: PlanTie
       },
     })
 
-    return { user: newUser, verificationToken: tokenRecord }
+    return { user: newUser, organization, verificationToken: tokenRecord }
   })
 
   await sendVerificationEmail(email, verificationToken.token)
+
+  await ensureActiveSubscriptionForOrg(organization.id, {
+    preferredTier: planTier,
+    userId: user.id,
+  })
 
   const response: Record<string, unknown> = {
     message: 'User registered successfully. Please verify your email to activate the account.',

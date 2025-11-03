@@ -6,6 +6,7 @@ import { UploadStatus } from '@prisma/client'
 import { db } from '@/lib/db'
 import { triggerUploadIngestion } from '@/lib/uploads'
 import { authOptions } from '@/lib/auth'
+import { log } from '@/lib/log'
 
 const completeSchema = z.object({
   uploadId: z.string().min(1, 'uploadId is required'),
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     const orgId = upload.orgId ?? upload.tender?.organizationId
 
     if (!orgId) {
-      console.error('Upload missing organization association', uploadId)
+      log('api:uploads-complete', 'missing-org', { uploadId })
       return NextResponse.json(
         { error: 'Upload is not associated with an organization' },
         { status: 500 }
@@ -87,6 +88,8 @@ export async function POST(request: NextRequest) {
 
     await triggerUploadIngestion(uploadId)
 
+    log('api:uploads-complete', 'accepted', { uploadId })
+
     return NextResponse.json({ ok: true })
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -99,7 +102,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.error('Upload completion error:', error)
+    const message = error instanceof Error ? error.message : String(error)
+    log('api:uploads-complete', 'error', { error: message })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

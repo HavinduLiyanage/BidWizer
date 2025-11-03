@@ -35,16 +35,18 @@ function getQueue(name: QueueName): Queue<BaseIngestJobPayload | ManifestJobPayl
   return queues.get(name)!
 }
 
+const STAGE_JOB_OPTIONS: JobsOptions = {
+  attempts: 3,
+  backoff: {
+    type: 'exponential',
+    delay: 2000,
+  },
+  removeOnComplete: 1000,
+  removeOnFail: 1000,
+}
+
 function defaultJobOptions(): JobsOptions {
-  return {
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 5000,
-    },
-    removeOnComplete: true,
-    removeOnFail: false,
-  }
+  return { ...STAGE_JOB_OPTIONS }
 }
 
 export function enqueueManifestJob(payload: ManifestJobPayload, options: JobsOptions = {}): Promise<string> {
@@ -85,12 +87,23 @@ function enqueue(
   jobId: string,
   options: JobsOptions,
 ): Promise<string> {
-  return getQueue(queueName)
+  const queue = getQueue(queueName)
+  const baseOptions = { ...STAGE_JOB_OPTIONS, ...options }
+  return queue
     .add(jobName, payload, {
+      ...baseOptions,
       jobId,
-      ...options,
     })
     .then((job) => job.id ?? jobId)
+    .catch((error: unknown) => {
+      if (error instanceof Error) {
+        const message = error.message.toLowerCase()
+        if (message.includes('already exists') || message.includes('jobid')) {
+          return jobId
+        }
+      }
+      throw error
+    })
 }
 
 function buildStageJobId(payload: BaseIngestJobPayload, stage: string): string {

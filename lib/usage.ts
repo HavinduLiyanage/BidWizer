@@ -3,6 +3,7 @@ import 'server-only'
 import { endOfMonth, startOfMonth } from 'date-fns'
 
 import { prisma } from '@/lib/db'
+import { flags } from '@/lib/flags'
 
 export async function getOrCreateMonthlyUsage(orgId: string) {
   const start = startOfMonth(new Date())
@@ -18,16 +19,20 @@ export async function getOrCreateMonthlyUsage(orgId: string) {
   return row
 }
 
-export async function incrementMonthly(orgId: string, kind: 'chat' | 'brief') {
+export async function incrementMonthly(orgId: string, kind: 'chat' | 'brief'): Promise<void> {
+  if (flags.planEnforcement === false) {
+    return
+  }
   const start = startOfMonth(new Date())
   const sel = { organizationId_periodStart: { organizationId: orgId, periodStart: start } }
   if (kind === 'chat') {
-    return prisma.aiMonthlyUsage.update({
+    await prisma.aiMonthlyUsage.update({
       where: sel,
       data: { usedChats: { increment: 1 } },
     })
+    return
   }
-  return prisma.aiMonthlyUsage.update({
+  await prisma.aiMonthlyUsage.update({
     where: sel,
     data: { usedBriefs: { increment: 1 } },
   })
@@ -49,15 +54,19 @@ export async function incrementOrgTender(
   orgId: string,
   tenderId: string,
   kind: 'chat' | 'brief',
-) {
+): Promise<void> {
+  if (flags.planEnforcement === false) {
+    return
+  }
   const where = { organizationId_tenderId: { organizationId: orgId, tenderId } }
   if (kind === 'chat') {
-    return prisma.orgTenderUsage.update({
+    await prisma.orgTenderUsage.update({
       where,
       data: { usedChats: { increment: 1 } },
     })
+    return
   }
-  return prisma.orgTenderUsage.update({
+  await prisma.orgTenderUsage.update({
     where,
     data: { usedBriefs: { increment: 1 } },
   })

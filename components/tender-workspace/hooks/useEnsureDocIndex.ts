@@ -36,29 +36,83 @@ export function useEnsureDocIndex(
     let cachedFileId: string | undefined
     let cachedDocHash: string | undefined
 
-    const pollProgress = async (
-      docHash: string,
-      fileId?: string,
-    ): Promise<boolean> => {
+    const fetchStatus = async (docHash: string): Promise<{
+      status: string
+      error: string | null
+      nextStage: string | null
+    }> => {
       const response = await fetch(
-        `/api/tenders/${tenderId}/docs/${docHash}/progress`,
+        `/api/tenders/${tenderId}/docs/${docHash}/ensure-index`,
         { cache: 'no-store' },
       )
+
       if (!response.ok) {
-        throw new Error('Failed to read index progress')
+        const payload = await response.json().catch(() => ({}))
+        const message =
+          typeof payload?.error === 'string' && payload.error.length > 0
+            ? payload.error
+            : `Failed to resolve document index (${response.status})`
+        const err = new Error(message)
+        ;(err as Error & { status?: number }).status = response.status
+        throw err
       }
 
-      const payload = await response.json()
-      if (payload.status === 'ready') {
+      const payload = (await response.json().catch(() => ({}))) as {
+        status?: string
+        error?: string | null
+        nextStage?: string | null
+      }
+
+      return {
+        status: typeof payload?.status === 'string' ? payload.status : 'PENDING',
+        error:
+          typeof payload?.error === 'string' && payload.error.length > 0
+            ? payload.error
+            : null,
+        nextStage:
+          typeof payload?.nextStage === 'string' && payload.nextStage.length > 0
+            ? payload.nextStage
+            : null,
+      }
+    }
+
+    const applyStatus = (
+      docHash: string,
+      fileId: string | undefined,
+      info: { status: string; error: string | null; nextStage: string | null },
+    ): boolean => {
+      if (info.status === 'READY') {
         setState({ status: 'ready', docHash, fileId })
         return true
       }
-      if (payload.status === 'failed') {
-        throw new Error(payload.progress?.message ?? 'Index build failed')
+
+      if (info.status === 'FAILED') {
+        setState({
+          status: 'error',
+          docHash,
+          fileId,
+          message: info.error ?? 'Indexing failed',
+        })
+        return true
       }
-      if (payload.status === 'not-found') {
-        throw new Error('Index not found for this document')
-      }
+
+      const friendlyStage =
+        info.nextStage === 'extract'
+          ? 'Waiting for text extraction…'
+          : info.nextStage === 'chunk'
+          ? 'Chunking document…'
+          : info.nextStage === 'embed'
+          ? 'Generating AI embeddings…'
+          : info.nextStage === 'summary'
+          ? 'Generating summary…'
+          : 'Preparing index…'
+
+      setState({
+        status: 'preparing',
+        docHash,
+        fileId,
+        message: friendlyStage,
+      })
       return false
     }
 
@@ -199,33 +253,16 @@ export function useEnsureDocIndex(
         cachedFileId = preview.fileId
         cachedDocHash = preview.docHash
 
-        const ensureRes = await fetch(
-          `/api/tenders/${tenderId}/docs/${encodeURIComponent(preview.docHash)}/ensure-index`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-          },
-        )
-        if (!ensureRes.ok) {
-          throw new Error('Failed to ensure index')
-        }
-        const ensure = await ensureRes.json()
-        const docHash: string | undefined =
-          typeof ensure?.docHash === 'string' && ensure.docHash.length > 0
-            ? ensure.docHash
-            : cachedDocHash
-        if (!docHash) {
-          throw new Error('Index response missing doc hash')
-        }
-        cachedDocHash = docHash
+        const statusInfo = await fetchStatus(preview.docHash)
+        const finished = applyStatus(preview.docHash, cachedFileId, statusInfo)
 
-        const ready = await pollProgress(docHash, cachedFileId)
-        if (!ready && !cancelled) {
+        if (!finished && !cancelled) {
+          stopPolling()
           pollingRef.current = setInterval(() => {
-            pollProgress(docHash, cachedFileId)
-              .then((isReady) => {
-                if (isReady) {
+            fetchStatus(preview.docHash)
+              .then((info) => {
+                const done = applyStatus(preview.docHash, cachedFileId, info)
+                if (done) {
                   stopPolling()
                 }
               })
@@ -234,13 +271,13 @@ export function useEnsureDocIndex(
                 if (!cancelled) {
                   setState({
                     status: 'error',
-                    docHash,
+                    docHash: preview.docHash,
                     fileId: cachedFileId,
-                    message: (error as Error).message ?? 'Polling error',
+                    message: (error as Error).message ?? 'Status polling failed',
                   })
                 }
               })
-          }, 1500)
+          }, 2000)
         }
       } catch (error) {
         stopPolling()

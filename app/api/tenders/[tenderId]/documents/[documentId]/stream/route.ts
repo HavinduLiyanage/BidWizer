@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { loadUploadBuffer } from "@/lib/uploads";
 import { enforceAccess, PlanError } from "@/lib/entitlements/enforce";
 import type { PlanErrorResponse } from "@/types/api-errors";
+import { ensureTenderAccess } from "@/lib/indexing/access";
 
 export const runtime = "nodejs";
 
@@ -135,37 +136,18 @@ export async function GET(
     }
 
     const { tenderId, documentId } = paramsSchema.parse(context.params);
-
-    const tender = await db.tender.findUnique({
-      where: { id: tenderId },
-      select: { organizationId: true },
-    });
-
-    if (!tender) {
-      return NextResponse.json({ error: "Tender not found" }, { status: 404 });
-    }
-
-    const membership = await db.orgMember.findUnique({
-      where: {
-        userId_organizationId: {
-          userId: session.user.id,
-          organizationId: tender.organizationId,
-        },
-      },
-      select: { id: true },
-    });
-
-    if (!membership) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const access = await ensureTenderAccess(session.user.id, tenderId);
+    const viewerOrganizationId = access.viewerOrganizationId ?? access.organizationId;
 
     const page = resolveRequestedPage(request);
 
     try {
       await enforceAccess({
-        orgId: tender.organizationId,
+        orgId: viewerOrganizationId,
         feature: "pageView",
         page,
+        userId: session.user.id,
+        tenderId,
       });
     } catch (error) {
       if (error instanceof PlanError) {
