@@ -232,7 +232,7 @@ export function TenderWorkspaceSurface({
       }
       const filteredChildren = node.children
         ?.map(filterNode)
-        .filter((child): child is FileNode => Boolean(child));
+        .filter((child): child is TenderDocumentNode => Boolean(child));
       if (matches || (filteredChildren && filteredChildren.length > 0)) {
         return {
           ...node,
@@ -377,7 +377,12 @@ export function TenderWorkspaceSurface({
                 No documents available for this tender yet.
               </div>
             ) : (
-              <DocumentViewer tenderId={tenderId} selectedNode={selectedNode} />
+              <PdfViewerWrapper
+                tenderId={tenderId}
+                documentId={selectedNode.id}
+              >
+                <DocumentViewer tenderId={tenderId} selectedNode={selectedNode} />
+              </PdfViewerWrapper>
             )}
           </div>
         </section>

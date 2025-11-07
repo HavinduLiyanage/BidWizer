@@ -3,6 +3,7 @@ import { createWriteStream, createReadStream } from 'fs'
 import { join } from 'path'
 import { Readable } from 'stream'
 import { pipeline } from 'stream/promises'
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -65,7 +66,7 @@ export async function PUT(
       return NextResponse.json({ ok: true })
     }
 
-    const nodeReadable = Readable.fromWeb(body)
+    const nodeReadable = Readable.fromWeb(body as unknown as NodeReadableStream<Uint8Array>)
     await pipeline(nodeReadable, createWriteStream(targetPath))
 
     return NextResponse.json({ ok: true })
@@ -95,7 +96,7 @@ export async function GET(
     const fileStats = await stat(targetPath)
 
     const nodeStream = createReadStream(targetPath)
-    const webStream = Readable.toWeb(nodeStream)
+    const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>
 
     return new NextResponse(webStream, {
       headers: {

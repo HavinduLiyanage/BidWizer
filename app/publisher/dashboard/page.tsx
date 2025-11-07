@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Eye, Edit, TrendingUp, Trash2, Search, Calendar, DollarSign, Users } from "lucide-react";
+import { Plus, Eye, Edit, TrendingUp, Trash2, Search, Calendar, DollarSign, Users, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import SiteHeader from "@/components/site-header";
 import SiteFooter from "@/components/site-footer";
@@ -67,6 +67,41 @@ export default function PublisherDashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [publisherTenders, setPublisherTenders] = useState<PublisherTender[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [deletingTenderId, setDeletingTenderId] = useState<string | null>(null);
+
+  const handleDeleteTender = useCallback(
+    async (tenderId: string, tenderTitle: string) => {
+      const isConfirmed = window.confirm(
+        `Are you sure you want to delete "${tenderTitle}"? This action cannot be undone.`
+      );
+
+      if (!isConfirmed) {
+        return;
+      }
+
+      setDeletingTenderId(tenderId);
+
+      try {
+        const response = await fetch(`/api/tenders/${tenderId}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body?.error ?? "Failed to delete tender");
+        }
+
+        setPublisherTenders((prev) => prev.filter((tender) => tender.id !== tenderId));
+      } catch (error) {
+        console.error("Failed to delete tender:", error);
+        alert(error instanceof Error ? error.message : "Unable to delete tender. Please try again.");
+      } finally {
+        setDeletingTenderId(null);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -173,7 +208,7 @@ export default function PublisherDashboardPage() {
 
           {/* Stats Cards */}
           <motion.div 
-            className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8"
+            className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 max-w-4xl mx-auto"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, duration: 0.5 }}
@@ -201,20 +236,6 @@ export default function PublisherDashboardPage() {
                   </div>
                   <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
                     <TrendingUp className="h-6 w-6 text-green-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-white border-gray-200 shadow-sm h-24">
-              <CardContent className="p-6 h-full flex items-center">
-                <div className="flex items-center justify-between w-full">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Draft Tenders</p>
-                    <p className="text-2xl font-bold text-amber-600">{stats.draft}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center">
-                    <Edit className="h-6 w-6 text-amber-600" />
                   </div>
                 </div>
               </CardContent>
@@ -258,13 +279,12 @@ export default function PublisherDashboardPage() {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                className="h-10 min-w-[140px] px-4 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               >
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
                 <option value="draft">Draft</option>
                 <option value="closed">Closed</option>
-                <option value="awarded">Awarded</option>
                 <option value="cancelled">Cancelled</option>
               </select>
               <Link href="/publisher/tenders/new">
@@ -389,63 +409,46 @@ export default function PublisherDashboardPage() {
                               {tender.statusCode === "DRAFT" ? (
                                 <span className="text-gray-400 text-sm">No data available</span>
                               ) : (
-                                <div className="space-y-1">
+                                <div>
                                   <div className="flex items-center gap-2 text-sm">
                                     <Eye className="h-3 w-3 text-gray-400" />
                                     <span className="text-gray-700">
                                       {Math.floor(Math.random() * 1000) + 100} views
                                     </span>
                                   </div>
-                                  <div className="flex items-center gap-2 text-sm">
-                                    <Users className="h-3 w-3 text-gray-400" />
-                                    <span className="text-gray-700">
-                                      {Math.floor(Math.random() * 50) + 5} interested
-                                    </span>
-                                  </div>
                                 </div>
                               )}
                             </td>
                             <td className="px-6 py-4">
-                              <div className="flex items-center gap-2">
-                                {tender.statusCode !== "DRAFT" && (
-                                  <Link href={`/tenders/${tender.id}`}>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0 hover:bg-gray-100"
-                                      aria-label="View tender"
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                  </Link>
-                                )}
+                              <div className="flex items-center gap-1.5">
+                                <Link href={`/publisher/tenders/${tender.id}/edit`}>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="flex items-center gap-2 px-3 h-9 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                    <span>Edit</span>
+                                  </Button>
+                                </Link>
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 w-8 p-0 hover:bg-gray-100"
-                                  aria-label="Edit tender"
+                                  className="flex items-center gap-2 px-3 h-9 text-sm text-red-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-70"
+                                  onClick={() => handleDeleteTender(tender.id, tender.title)}
+                                  disabled={deletingTenderId === tender.id}
                                 >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                {tender.statusCode !== "DRAFT" && (
-                                  <Link href={`/publisher/tenders/${tender.id}/analytics`}>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0 hover:bg-gray-100"
-                                      aria-label="View analytics"
-                                    >
-                                      <TrendingUp className="h-4 w-4" />
-                                    </Button>
-                                  </Link>
-                                )}
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
-                                  aria-label="Delete tender"
-                                >
-                                  <Trash2 className="h-4 w-4" />
+                                  {deletingTenderId === tender.id ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                      <span>Deleting&hellip;</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Trash2 className="h-4 w-4" />
+                                      <span>Delete</span>
+                                    </>
+                                  )}
                                 </Button>
                               </div>
                             </td>
@@ -486,4 +489,3 @@ export default function PublisherDashboardPage() {
     </>
   );
 }
-

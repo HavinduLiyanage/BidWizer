@@ -20,7 +20,19 @@ const QUEUE_NAMES: Record<QueueName, string> = {
   summary: 'ingest:summary',
 }
 
-const queues = new Map<QueueName, Queue<BaseIngestJobPayload | ManifestJobPayload>>()
+type IngestQueue = Queue<BaseIngestJobPayload | ManifestJobPayload>
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __BIDWIZER_INGEST_QUEUES__:
+    | Map<QueueName, IngestQueue>
+    | undefined
+}
+
+const globalQueues =
+  (globalThis.__BIDWIZER_INGEST_QUEUES__ ??= new Map<QueueName, IngestQueue>())
+
+const queues = globalQueues
 
 function getQueue(name: QueueName): Queue<BaseIngestJobPayload | ManifestJobPayload> {
   if (!queues.has(name)) {

@@ -30,16 +30,18 @@ export default function JoinTeamPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = searchParams.get("token");
-    if (!token) {
+    const tokenParam = searchParams.get("token");
+    if (!tokenParam) {
       setError("This invite link is invalid. Please contact your administrator.");
       setIsLoading(false);
       return;
     }
 
-    async function loadInvite() {
+    const inviteToken = tokenParam;
+
+    async function loadInvite(currentToken: string) {
       try {
-        const response = await fetch(`/api/invitations/${token}`);
+        const response = await fetch(`/api/invitations/${currentToken}`);
         const payload = await response.json();
 
         if (!response.ok) {
@@ -61,7 +63,7 @@ export default function JoinTeamPage() {
           position: data.position,
           organizationName: data.organizationName,
           inviterName: data.inviterName,
-          token,
+          token: currentToken,
         });
         setError(null);
       } catch (err) {
@@ -72,7 +74,7 @@ export default function JoinTeamPage() {
       }
     }
 
-    void loadInvite();
+    void loadInvite(inviteToken);
   }, [searchParams]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {

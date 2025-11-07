@@ -13,12 +13,31 @@ export interface BuildManifestJobPayload {
   artifactVersion?: number
 }
 
-let queue: Queue<BuildManifestJobPayload> | null = null
-let queueConnection: Redis | null = null
+type GlobalIndexQueueState = {
+  queue: Queue<BuildManifestJobPayload> | null
+  connection: Redis | null
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __BIDWIZER_INDEX_QUEUE__:
+    | GlobalIndexQueueState
+    | undefined
+}
+
+const globalState =
+  (globalThis.__BIDWIZER_INDEX_QUEUE__ ??= {
+    queue: null,
+    connection: null,
+  })
+
+let queue: Queue<BuildManifestJobPayload> | null = globalState.queue
+let queueConnection: Redis | null = globalState.connection
 
 function getQueueConnection(): Redis {
   if (!queueConnection) {
     queueConnection = createRedisConnection()
+    globalState.connection = queueConnection
   }
   return queueConnection
 }
@@ -29,6 +48,7 @@ export function getIndexingQueue(): Queue<BuildManifestJobPayload> {
       connection: getQueueConnection(),
       defaultJobOptions: defaultJobOptions(),
     })
+    globalState.queue = queue
   }
   return queue
 }

@@ -102,13 +102,20 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (token) {
+        const allowedOrgTypes = new Set(['BIDDER', 'PUBLISHER'])
+        const rawOrganizationType = token.organizationType
+        const organizationType =
+          typeof rawOrganizationType === 'string' && allowedOrgTypes.has(rawOrganizationType)
+            ? (rawOrganizationType as 'BIDDER' | 'PUBLISHER')
+            : null
+
         session.user = {
           id: token.id as string,
           email: token.email as string,
           name: token.name as string | undefined,
           organizationId: (token.organizationId as string | null | undefined) ?? null,
           organizationSlug: (token.organizationSlug as string | null | undefined) ?? null,
-          organizationType: (token.organizationType as string | null | undefined) ?? null,
+          organizationType,
           orgRole: (token.orgRole as string | null | undefined) ?? null,
         }
       }

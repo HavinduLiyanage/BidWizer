@@ -83,7 +83,7 @@ export class LruCache<V> {
   }
 
   clear(): void {
-    for (const [key, entry] of this.map.entries()) {
+    for (const [key, entry] of Array.from(this.map.entries())) {
       this.invokeDispose(key, entry)
     }
     this.map.clear()

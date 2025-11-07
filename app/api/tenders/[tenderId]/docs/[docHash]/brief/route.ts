@@ -9,8 +9,7 @@ import { ensureTenderAccess } from '@/lib/indexing/access'
 import { retrieveChunksFromFile, buildContext } from '@/lib/ai/rag'
 import { openai } from '@/lib/ai/openai'
 import { enforceAccess, PlanError } from '@/lib/entitlements/enforce'
-import { incrementMonthly, incrementOrgTender } from '@/lib/usage'
-import type { PlanErrorResponse } from '@/types/api-errors'
+import { consumeBriefCreditAtomically, incrementMonthly } from '@/lib/usage'
 
 const paramsSchema = z.object({
   tenderId: z.string().min(1),
@@ -37,7 +36,7 @@ export async function POST(
     const access = await ensureTenderAccess(session.user.id, tenderId)
     const ownerOrganizationId = access.organizationId
     const viewerOrgId = access.viewerOrganizationId ?? access.organizationId
-    const planTier = await enforceAccess({
+    const accessResult = await enforceAccess({
       orgId: viewerOrgId,
       feature: 'brief',
       tenderId,
@@ -119,52 +118,60 @@ export async function POST(
       `Length: ${length}`,
     ].join('\n')
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.2,
-      max_tokens: 1200,
-    })
-
-    const rawOutput = completion.choices?.[0]?.message?.content?.trim() ?? ''
-
-    if (!rawOutput) {
-      return NextResponse.json({
-        briefJson: null,
-        markdown: "I couldn't find that in this file.",
+    const runBriefGeneration = async () => {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 1200,
       })
-    }
 
-    let briefJson: unknown = null
-    let markdown = rawOutput
-    const jsonMatch = rawOutput.match(/\{[\s\S]*?\}/)
-    if (jsonMatch) {
-      try {
-        briefJson = JSON.parse(jsonMatch[0])
-        markdown = rawOutput.slice(jsonMatch.index! + jsonMatch[0].length).trim()
-      } catch {
-        briefJson = null
-        markdown = rawOutput
+      const rawOutput = completion.choices?.[0]?.message?.content?.trim() ?? ''
+
+      if (!rawOutput) {
+        return {
+          briefJson: null,
+          markdown: "I couldn't find that in this file.",
+        }
       }
+
+      let briefJson: unknown = null
+      let markdown = rawOutput
+      const jsonMatch = rawOutput.match(/\{[\s\S]*?\}/)
+      if (jsonMatch) {
+        try {
+          briefJson = JSON.parse(jsonMatch[0])
+          markdown = rawOutput.slice(jsonMatch.index! + jsonMatch[0].length).trim()
+        } catch {
+          briefJson = null
+          markdown = rawOutput
+        }
+      }
+
+      if (!markdown) {
+        markdown = "I couldn't find that in this file."
+      }
+
+      return { briefJson, markdown }
     }
 
-    if (!markdown) {
-      markdown = "I couldn't find that in this file."
-    }
+    const payload =
+      accessResult.actions.debitTrialBriefCredit === true
+        ? await consumeBriefCreditAtomically({
+            orgId: viewerOrgId,
+            tenderId,
+            work: runBriefGeneration,
+          })
+        : await runBriefGeneration()
 
-    if (planTier === 'FREE') {
-      await incrementOrgTender(viewerOrgId, tenderId, 'brief')
-    } else if (planTier === 'STANDARD' || planTier === 'PREMIUM') {
+    if (accessResult.plan === 'STANDARD' || accessResult.plan === 'PREMIUM') {
       await incrementMonthly(viewerOrgId, 'brief')
     }
 
-    return NextResponse.json({
-      briefJson,
-      markdown,
-    })
+    return NextResponse.json(payload)
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
@@ -173,8 +180,7 @@ export async function POST(
       )
     }
     if (error instanceof PlanError) {
-      const payload: PlanErrorResponse = { error: error.code, message: error.message }
-      return NextResponse.json(payload, { status: error.http })
+      return NextResponse.json({ code: error.code }, { status: error.http })
     }
 
     console.error('[brief] failed:', error)

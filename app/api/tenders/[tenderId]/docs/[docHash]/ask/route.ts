@@ -11,8 +11,7 @@ import { openai } from '@/lib/ai/openai'
 import { retrieveChunksFromFile, buildContext } from '@/lib/ai/rag'
 import { ensureTenderAccess } from '@/lib/indexing/access'
 import { enforceAccess, PlanError } from '@/lib/entitlements/enforce'
-import { incrementMonthly, incrementOrgTender } from '@/lib/usage'
-import type { PlanErrorResponse } from '@/types/api-errors'
+import { incrementMonthly, incrementOrgTenderChats } from '@/lib/usage'
 import { flags } from '@/lib/flags'
 import { getRedisClient } from '@/lib/redis'
 
@@ -44,7 +43,7 @@ export async function POST(
     const access = await ensureTenderAccess(session.user.id, tenderId)
     const ownerOrganizationId = access.organizationId
     const viewerOrgId = access.viewerOrganizationId ?? access.organizationId
-    const planTier = await enforceAccess({
+    const accessResult = await enforceAccess({
       orgId: viewerOrgId,
       feature: 'chat',
       tenderId,
@@ -193,9 +192,11 @@ export async function POST(
       snippet: section.content.slice(0, 220),
     }))
 
-    if (planTier === 'FREE') {
-      await incrementOrgTender(viewerOrgId, tenderId, 'chat')
-    } else if (planTier === 'STANDARD' || planTier === 'PREMIUM') {
+    if (accessResult.actions.incrementChats) {
+      await incrementOrgTenderChats(viewerOrgId, tenderId)
+    }
+
+    if (accessResult.plan === 'STANDARD' || accessResult.plan === 'PREMIUM') {
       await incrementMonthly(viewerOrgId, 'chat')
     }
 
@@ -211,8 +212,7 @@ export async function POST(
       )
     }
     if (error instanceof PlanError) {
-      const payload: PlanErrorResponse = { error: error.code, message: error.message }
-      return NextResponse.json(payload, { status: error.http })
+      return NextResponse.json({ code: error.code }, { status: error.http })
     }
 
     console.error('[ask] failed:', error)

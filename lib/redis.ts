@@ -9,12 +9,25 @@ import type { IndexPhase, IndexProgressSnapshot, IndexResumeState } from '@/lib/
 
 const DEFAULT_LOCK_TTL_SECONDS = 30 * 60
 
-let sharedClient: Redis | null = null
-let evictionPolicyChecked = false
+type RedisGlobalState = {
+  client?: Redis | null
+  evictionPolicyChecked?: boolean
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __BIDWIZER_REDIS__: RedisGlobalState | undefined
+}
+
+const globalState = (globalThis.__BIDWIZER_REDIS__ ??= {})
+
+let sharedClient: Redis | null = globalState.client ?? null
+let evictionPolicyChecked = globalState.evictionPolicyChecked ?? false
 
 async function ensureRedisNoEviction(client: Redis): Promise<void> {
   if (evictionPolicyChecked) return
   evictionPolicyChecked = true
+  globalState.evictionPolicyChecked = true
   try {
     // Ensure connection is established before CONFIG
     // ioredis with lazyConnect requires an explicit connect
@@ -112,6 +125,7 @@ function createBaseRedisClient(): Redis {
 export function getRedisClient(): Redis {
   if (!sharedClient) {
     sharedClient = createBaseRedisClient()
+    globalState.client = sharedClient
     // Fire-and-forget best-effort policy check
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
     ensureRedisNoEviction(sharedClient)
@@ -145,7 +159,7 @@ export async function acquireIndexLock(
   docHash: string,
   ttlSeconds: number = DEFAULT_LOCK_TTL_SECONDS,
 ): Promise<boolean> {
-  const result = await redis.set(indexLockKey(docHash), '1', 'NX', 'EX', ttlSeconds)
+  const result = await redis.set(indexLockKey(docHash), '1', 'EX', ttlSeconds, 'NX')
   return result === 'OK'
 }
 

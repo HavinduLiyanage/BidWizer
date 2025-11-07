@@ -11,25 +11,44 @@ if (!url) {
 
 const isTLS = url.startsWith('rediss://')
 
-export const connection = new IORedis(url, {
-  ...(isTLS ? { tls: {} } : {}),
-  maxRetriesPerRequest: null,
-})
+type QueueGlobalState = {
+  connection?: IORedis
+  queue?: Queue
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __BIDWIZER_QUEUE_STATE__:
+    | QueueGlobalState
+    | undefined
+}
+
+const globalState =
+  (globalThis.__BIDWIZER_QUEUE_STATE__ ??= {})
+
+export const connection =
+  globalState.connection ??
+  (globalState.connection = new IORedis(url, {
+    ...(isTLS ? { tls: {} } : {}),
+    maxRetriesPerRequest: null,
+  }))
 
 export const INDEX_QUEUE =
   env.BIDWIZER_INDEX_QUEUE && env.BIDWIZER_INDEX_QUEUE.length > 0
     ? env.BIDWIZER_INDEX_QUEUE
     : 'tender-indexing'
 
-export const indexingQueue = new Queue(INDEX_QUEUE, {
-  connection,
-  defaultJobOptions: {
-    removeOnComplete: true,
-    removeOnFail: false,
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 5000,
+export const indexingQueue =
+  globalState.queue ??
+  (globalState.queue = new Queue(INDEX_QUEUE, {
+    connection,
+    defaultJobOptions: {
+      removeOnComplete: true,
+      removeOnFail: false,
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 5000,
+      },
     },
-  },
-})
+  }))

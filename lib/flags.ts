@@ -2,8 +2,9 @@ import { env } from './env'
 
 export const flags = {
   emailProvider: env.EMAIL_PROVIDER,
-  planEnforcement: env.PLAN_ENFORCEMENT_ENABLED,
+  planEnforcement: env.PLAN_ENFORCEMENT_ENABLED === true,
   watermark: env.WATERMARK_ENABLED,
+  pdfOverlayMode: env.PDF_OVERLAY_MODE,
   storageDriver: env.STORAGE_DRIVER,
   queueDriver: env.QUEUE_DRIVER,
   ingestionMode: env.INGESTION_MODE,

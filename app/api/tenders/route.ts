@@ -29,9 +29,11 @@ export const createTenderSchema = z.object({
 
 export const INVALID_PREBID_ERROR = 'INVALID_PREBID_MEETING'
 
+type TenderCreatePayload = Omit<Prisma.TenderUncheckedCreateInput, 'organizationId'>
+
 export function buildTenderMutationData(
   data: z.infer<typeof createTenderSchema>
-): Prisma.TenderUncheckedUpdateInput {
+): TenderCreatePayload {
   const trimmedRequirements =
     data.requirements?.map((req) => req.trim()).filter((req) => req.length > 0) ?? []
 
@@ -50,6 +52,9 @@ export function buildTenderMutationData(
     throw new Error(INVALID_PREBID_ERROR)
   }
 
+  const requirementsInput: Prisma.NullableJsonNullValueInput | Prisma.InputJsonValue =
+    trimmedRequirements.length > 0 ? (trimmedRequirements as Prisma.InputJsonValue) : Prisma.JsonNull
+
   return {
     title: data.title,
     description: data.description && data.description.length > 0 ? data.description : null,
@@ -64,10 +69,7 @@ export function buildTenderMutationData(
     contactEmail: data.contactEmail,
     companyWebsite:
       data.companyWebsite && data.companyWebsite.length > 0 ? data.companyWebsite : null,
-    requirements:
-      trimmedRequirements.length > 0
-        ? (trimmedRequirements as Prisma.JsonValue)
-        : Prisma.JsonNull,
+    requirements: requirementsInput,
     preBidMeetingAt: preBidMeetingAt ?? undefined,
   }
 }
@@ -103,7 +105,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the tender
-    let tenderPayload: Prisma.TenderUncheckedUpdateInput
+    let tenderPayload: TenderCreatePayload
     try {
       tenderPayload = buildTenderMutationData(data)
     } catch (error) {
@@ -194,4 +196,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
-

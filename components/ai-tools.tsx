@@ -1,5 +1,5 @@
 import { Zap, MessageSquare, Users, TrendingUp } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { motion, type Variants } from 'framer-motion'
 
 const tools = [
   {
@@ -32,7 +32,7 @@ const tools = [
   }
 ]
 
-const container = {
+const container: Variants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
@@ -42,15 +42,14 @@ const container = {
   }
 }
 
-const item = {
+const item: Variants = {
   hidden: { opacity: 0, y: 30, scale: 0.95 },
   show: { 
     opacity: 1, 
     y: 0,
     scale: 1,
     transition: {
-      duration: 0.5,
-      ease: [0.23, 1, 0.32, 1]
+      duration: 0.5
     }
   }
 }

@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, writeFile, rm } from 'fs/promises'
 import { dirname, join } from 'path'
 
 import * as unzipper from 'unzipper'
@@ -10,6 +10,7 @@ import { flags } from '@/lib/flags'
 import { enqueueManifestJob } from '@/lib/ingest/queues'
 import {
   downloadSupabaseObject,
+  deleteSupabaseObject,
   getSupabaseUploadsBucketName,
   uploadSupabaseObject,
 } from '@/lib/storage'
@@ -19,6 +20,13 @@ const CHUNKED_STORAGE_PREFIX = 'chunked://'
 const CHUNK_MANIFEST_VERSION = 1
 const MAX_ZIP_ENTRIES = 2000
 const DEFAULT_STORED_FILENAME = 'original.bin'
+
+type ZipFileEntry = {
+  path: string
+  type: string
+  uncompressedSize?: number
+  buffer: () => Promise<Buffer>
+}
 
 export function parseMockStorageKey(storageKey: string): { uploadId: string; filename: string } {
   const withoutPrefix = storageKey.slice(MOCK_STORAGE_PREFIX.length)
@@ -101,6 +109,40 @@ export async function loadUploadBuffer(
   return downloadSupabaseObject(bucketName, storageKey)
 }
 
+async function deleteMockStorageFile(storageKey: string): Promise<void> {
+  try {
+    const filePath = await resolveMockStoragePath(storageKey)
+    await rm(filePath, { force: true })
+  } catch (error) {
+    console.warn(`[uploads] Failed to delete mock storage file ${storageKey}:`, error)
+  }
+}
+
+export async function deleteStoredObject(
+  storageKey: string | null | undefined,
+  options: { bucket?: string | null } = {},
+): Promise<void> {
+  if (!storageKey) {
+    return
+  }
+
+  if (storageKey.startsWith(MOCK_STORAGE_PREFIX)) {
+    await deleteMockStorageFile(storageKey)
+    return
+  }
+
+  const bucket = options.bucket && options.bucket.length > 0 ? options.bucket : getSupabaseUploadsBucketName()
+
+  try {
+    await deleteSupabaseObject(bucket, storageKey)
+  } catch (error) {
+    console.warn(
+      `[uploads] Failed to delete Supabase object ${storageKey} from bucket ${bucket}:`,
+      error,
+    )
+  }
+}
+
 async function triggerLegacyUploadIngestion(uploadId: string): Promise<void> {
   if (!uploadId) {
     throw new Error('uploadId is required to trigger ingestion')
@@ -166,7 +208,8 @@ async function triggerLegacyUploadIngestion(uploadId: string): Promise<void> {
 
     if (upload.kind === UploadKind.zip) {
       const directory = await unzipper.Open.buffer(payload)
-      const entries = directory.files.filter((entry) => entry.type !== 'Directory')
+      const files = directory.files as ZipFileEntry[]
+      const entries = files.filter((entry) => entry.type !== 'Directory')
       const limitedEntries = entries.slice(0, MAX_ZIP_ENTRIES)
 
       if (entries.length > MAX_ZIP_ENTRIES) {

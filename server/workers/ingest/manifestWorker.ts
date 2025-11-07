@@ -1,4 +1,4 @@
-import { UploadKind, UploadStatus, DocStatus, PrismaClient } from '@prisma/client'
+import { UploadKind, UploadStatus, DocStatus, PrismaClient, Prisma } from '@prisma/client'
 import { Worker, type Job } from 'bullmq'
 import * as unzipper from 'unzipper'
 
@@ -34,6 +34,13 @@ const MAX_ZIP_ENTRIES = 2000
 const INDEX_BUCKET = getSupabaseIndexBucketName()
 
 const prisma = new PrismaClient()
+
+type ZipFileEntry = {
+  path: string
+  type: string
+  buffer: () => Promise<Buffer>
+  uncompressedSize?: number
+}
 
 type DocumentQueueEntry = {
   id: string
@@ -120,12 +127,13 @@ async function processManifestJob(job: Job<ManifestJobPayload>): Promise<void> {
     const payload = await loadUploadBuffer(upload.storageKey ?? null)
 
     const manifestEntries: ManifestDocumentRecord[] = []
-    const extractedRecords: Parameters<typeof prisma.extractedFile.createMany>[0]['data'] = []
+    const extractedRecords: Prisma.ExtractedFileCreateManyInput[] = []
     const documentsToQueue: DocumentQueueEntry[] = []
 
     if (upload.kind === UploadKind.zip) {
       const directory = await unzipper.Open.buffer(payload)
-      const entries = directory.files.filter((entry) => entry.type !== 'Directory')
+      const files = directory.files as ZipFileEntry[]
+      const entries = files.filter((entry) => entry.type !== 'Directory')
       const limitedEntries = entries.slice(0, MAX_ZIP_ENTRIES)
 
       if (entries.length > MAX_ZIP_ENTRIES) {

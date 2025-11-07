@@ -221,10 +221,7 @@ export async function POST(request: NextRequest) {
           storageKey = `${STORAGE_KEY_PREFIX}/${tender.organizationId}/${tenderId}/originals/${uploadId}/original.${extension}`
           const { data, error } = await supabaseClient.storage
             .from(supabaseBucket)
-            .createSignedUploadUrl(storageKey, UPLOAD_URL_TTL_SECONDS, {
-              contentType: normalizedMime,
-              upsert: false,
-            })
+            .createSignedUploadUrl(storageKey, { upsert: false })
 
           if (error || !data?.signedUrl) {
             console.warn('Supabase signed upload url failed, falling back to mock storage:', error)

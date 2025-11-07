@@ -55,9 +55,9 @@ type StringEnvKey = {
   [K in keyof typeof env]: typeof env[K] extends string | undefined ? K : never
 }[keyof typeof env]
 
-function resolveEnv(keys: StringEnvKey[], fallback: string): string {
+function resolveEnv(keys: readonly StringEnvKey[], fallback: string): string {
   for (const key of keys) {
-    const value = env[key]
+    const value = env[key as keyof typeof env]
     if (typeof value === 'string' && value.length > 0) {
       return value
     }
@@ -339,7 +339,7 @@ async function toArrayBuffer(body: UploadBody): Promise<ArrayBuffer> {
   }
 
   if (Buffer.isBuffer(body)) {
-    return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)
+    return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer
   }
 
   if (body instanceof Blob || body instanceof File) {

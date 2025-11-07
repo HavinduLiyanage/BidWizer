@@ -1,6 +1,10 @@
-import { DocStatus } from '@prisma/client'
+import { DocStatus, Prisma } from '@prisma/client'
 
 import { prisma } from '@/lib/db'
+
+function isJsonObject(value: unknown): value is Prisma.JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 export async function recomputeTenderProgress(tenderId: string): Promise<void> {
   const [totalDocs, readyDocs] = await Promise.all([
@@ -21,10 +25,9 @@ export async function recomputeTenderProgress(tenderId: string): Promise<void> {
     return
   }
 
-  const existing =
-    tender.requirements && typeof tender.requirements === 'object'
-      ? { ...(tender.requirements as Record<string, unknown>) }
-      : {}
+  const existing: Prisma.JsonObject = isJsonObject(tender.requirements)
+    ? { ...(tender.requirements as Prisma.JsonObject) }
+    : {}
 
   const readiness =
     totalDocs === 0

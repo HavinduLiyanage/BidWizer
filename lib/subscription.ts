@@ -1,5 +1,6 @@
 import { addMonths } from 'date-fns'
 import {
+  OrganizationType,
   OrgMemberRole,
   PlanInterval,
   type PlanTier,
@@ -25,11 +26,15 @@ export async function ensureActiveSubscriptionForOrg(
 ): Promise<PlanTier> {
   const organization = await prisma.organization.findUnique({
     where: { id: organizationId },
-    select: { planTier: true },
+    select: { planTier: true, type: true },
   })
 
   if (!organization) {
     throw new Error(`Organization ${organizationId} not found`)
+  }
+
+  if (organization.type === OrganizationType.PUBLISHER) {
+    return organization.planTier as PlanTier
   }
 
   let effectiveTier = options.preferredTier ?? (organization.planTier as PlanTier)

@@ -1,6 +1,3 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-
 interface InvitationEmailTemplateProps {
   inviterName: string;
   companyName: string;
@@ -60,14 +57,12 @@ export function InvitationEmailTemplate({
         </div>
 
         <div className="text-center mb-6">
-          <Button 
-            asChild
-            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 text-lg font-semibold"
+          <a
+            href={inviteLink}
+            className="inline-block rounded-md bg-blue-600 px-8 py-3 text-lg font-semibold text-white no-underline hover:bg-blue-700"
           >
-            <a href={inviteLink}>
-              Accept Invitation & Create Account
-            </a>
-          </Button>
+            Accept Invitation &amp; Create Account
+          </a>
         </div>
 
         <p className="text-sm text-gray-500 mb-4">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { BriefLength } from "@/lib/mocks/ai";
 import { useEnsureDocIndex } from "../hooks/useEnsureDocIndex";
+import { track } from "@/lib/analytics";
+import type { UpsellFeature } from "@/components/Modals/UpsellModal";
 
 type BriefJson = {
   purpose?: string[];
@@ -31,24 +33,120 @@ type BriefJson = {
 interface BriefTabProps {
   tenderId: string;
   selectedFileId?: string;
+  briefCredits: number | null;
+  usedBriefs: number;
+  briefLimit: number | null;
+  briefTotal: number | null;
+  onUpsell: (feature: UpsellFeature) => void;
+  onUsageChange: () => void;
 }
 
-export function BriefTab({ tenderId, selectedFileId }: BriefTabProps) {
+export function BriefTab({
+  tenderId,
+  selectedFileId,
+  briefCredits,
+  usedBriefs,
+  briefLimit,
+  briefTotal,
+  onUpsell,
+  onUsageChange,
+}: BriefTabProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [length, setLength] = useState<BriefLength>("medium");
   const [brief, setBrief] = useState<BriefJson | null>(null);
   const [markdown, setMarkdown] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const blockedRef = useRef(false);
 
   const index = useEnsureDocIndex(tenderId, selectedFileId);
   const canGenerate =
     index.status === "ready" && Boolean(index.docHash) && Boolean(index.fileId);
 
+  const unlimitedBriefs = briefCredits === null;
+  const totalBriefAllowance = briefTotal ?? (briefCredits ?? null);
+  const creditsRemaining = briefCredits ?? (totalBriefAllowance ?? 0);
+  const tenderLimitReached =
+    typeof briefLimit === "number" && briefLimit > 0 ? usedBriefs >= briefLimit : false;
+  const noCredits = !unlimitedBriefs && typeof briefCredits === "number" && briefCredits <= 0;
+
+  const briefStorageKey =
+    typeof tenderId === "string" && tenderId.length > 0 && selectedFileId
+      ? `aiassistant:${tenderId}:${selectedFileId}:brief`
+      : null;
+
   useEffect(() => {
-    setBrief(null);
-    setMarkdown("");
-    setErrorMessage(null);
-  }, [selectedFileId]);
+    if (!briefStorageKey) {
+      setBrief(null);
+      setMarkdown("");
+      setLength("medium");
+      setErrorMessage(null);
+      blockedRef.current = false;
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const raw = sessionStorage.getItem(briefStorageKey);
+      if (!raw) {
+        setBrief(null);
+        setMarkdown("");
+        setLength("medium");
+        setErrorMessage(null);
+        blockedRef.current = false;
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as {
+        brief?: BriefJson | null;
+        markdown?: string;
+        length?: BriefLength;
+      };
+
+      setBrief(parsed?.brief ?? null);
+      setMarkdown(typeof parsed?.markdown === "string" ? parsed.markdown : "");
+      setLength(
+        parsed?.length === "short" ||
+          parsed?.length === "medium" ||
+          parsed?.length === "long"
+          ? parsed.length
+          : "medium",
+      );
+      setErrorMessage(null);
+    } catch (error) {
+      console.warn("Unable to restore brief session:", error);
+      setBrief(null);
+      setMarkdown("");
+      setLength("medium");
+      setErrorMessage(null);
+    } finally {
+      blockedRef.current = false;
+    }
+  }, [briefStorageKey]);
+
+  useEffect(() => {
+    if (!briefStorageKey || typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      if (!brief && !markdown) {
+        sessionStorage.removeItem(briefStorageKey);
+        return;
+      }
+
+      const payload = JSON.stringify({
+        brief,
+        markdown,
+        length,
+      });
+      sessionStorage.setItem(briefStorageKey, payload);
+    } catch (error) {
+      console.warn("Unable to persist brief session:", error);
+    }
+  }, [brief, markdown, length, briefStorageKey]);
 
   const sections = useMemo(() => {
     if (!brief) return [];
@@ -86,8 +184,26 @@ export function BriefTab({ tenderId, selectedFileId }: BriefTabProps) {
     return entries;
   }, [brief]);
 
+  const handleBlocked = (reason: string) => {
+    if (!blockedRef.current) {
+      track("brief_blocked", { tenderId, reason });
+      blockedRef.current = true;
+    }
+    onUpsell("brief");
+  };
+
   const handleGenerate = async () => {
     if (!canGenerate || isGenerating || !index.docHash || !index.fileId) return;
+
+    if (tenderLimitReached) {
+      handleBlocked("tender_limit_reached");
+      return;
+    }
+
+    if (noCredits) {
+      handleBlocked("no_credits_remaining");
+      return;
+    }
 
     setIsGenerating(true);
     setErrorMessage(null);
@@ -110,6 +226,8 @@ export function BriefTab({ tenderId, selectedFileId }: BriefTabProps) {
             ? payload.markdown
             : "I couldn't find that in this file.",
         );
+        blockedRef.current = false;
+        onUsageChange();
       } else if (response.status === 422) {
         setBrief(null);
         setMarkdown("");
@@ -118,6 +236,18 @@ export function BriefTab({ tenderId, selectedFileId }: BriefTabProps) {
             ? payload.error
             : "No indexed content for this file.",
         );
+      } else if (response.status === 403) {
+        const code = typeof payload?.code === "string" ? payload.code : "unknown";
+        if (code === "TRIAL_LIMIT" || code === "TENDER_BRIEF_LIMIT") {
+          handleBlocked(code);
+        }
+        const message =
+          typeof payload?.message === "string" && payload.message.trim().length > 0
+            ? payload.message
+            : typeof payload?.error === "string" && payload.error.trim().length > 0
+            ? payload.error
+            : `Brief endpoint returned ${response.status}`;
+        throw new Error(message);
       } else {
         const errorMessage =
           typeof payload?.message === "string" && payload.message.trim().length > 0
@@ -138,6 +268,22 @@ export function BriefTab({ tenderId, selectedFileId }: BriefTabProps) {
       setIsGenerating(false);
     }
   };
+
+  const buttonDisabled = !canGenerate || isGenerating || tenderLimitReached;
+  const buttonTitle = tenderLimitReached
+    ? "Brief used on this tender (trial limit)"
+    : noCredits
+    ? "No trial brief credits remaining"
+    : undefined;
+
+  const chipLabel = unlimitedBriefs
+    ? "Briefs left: Unlimited"
+    : `Briefs left: ${Math.max(creditsRemaining, 0)} / ${briefTotal ?? 3}`;
+
+  const tenderUsageLabel =
+    typeof briefLimit === "number" && briefLimit > 0
+      ? `This tender: ${Math.min(usedBriefs, briefLimit)} / ${briefLimit}`
+      : `This tender: ${usedBriefs}`;
 
   return (
     <div className="flex h-full flex-col">
@@ -208,23 +354,33 @@ export function BriefTab({ tenderId, selectedFileId }: BriefTabProps) {
           </PopoverContent>
         </Popover>
 
-        <Button
-          onClick={() => void handleGenerate()}
-          disabled={!canGenerate || isGenerating}
-          className="h-9 w-full text-xs"
-        >
-          {isGenerating ? (
-            <>
-              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <FileText className="mr-2 h-3.5 w-3.5" />
-              Generate Brief
-            </>
-          )}
-        </Button>
+        <div className="flex items-center justify-between gap-2">
+          <span
+            className="rounded-full bg-gray-100 px-3 py-1 text-[11px] text-gray-700"
+            data-testid="brief-chip"
+          >
+            {chipLabel}
+            {tenderUsageLabel ? ` • ${tenderUsageLabel}` : ""}
+          </span>
+          <Button
+            onClick={() => void handleGenerate()}
+            disabled={buttonDisabled}
+            title={buttonTitle}
+            className="h-9 text-xs"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <FileText className="mr-2 h-3.5 w-3.5" />
+                Generate Brief
+              </>
+            )}
+          </Button>
+        </div>
         {errorMessage && (
           <p className="text-[10px] text-red-600">{errorMessage}</p>
         )}

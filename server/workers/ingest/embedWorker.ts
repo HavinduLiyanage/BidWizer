@@ -20,6 +20,7 @@ import { createRedisConnection, withLock } from '@/lib/redis'
 
 const prisma = new PrismaClient()
 const LOCK_TTL_MS = 60_000
+const EMBED_TX_TIMEOUT_MS = 60_000
 
 interface ChunkRecord {
   id: string
@@ -112,7 +113,7 @@ async function processEmbedJob(job: Job<EmbedJobPayload>): Promise<void> {
             })),
           })
         }
-      })
+      }, { timeout: EMBED_TX_TIMEOUT_MS })
 
       await prisma.document.update({
         where: { id: documentId },

@@ -63,6 +63,7 @@ model Organization {
   invitations     Invitation[]
   members         OrgMember[]
   orgTenderUsages OrgTenderUsage[]
+  trialUsage      OrgTrialUsage?
   plans           Plan[]
   subscriptions   Subscription[]
   tenders         Tender[]
@@ -359,6 +360,16 @@ model OrgTenderUsage {
   @@map("org_tender_usage")
 }
 
+model OrgTrialUsage {
+  orgId         String        @id
+  briefCredits  Int           @default(3)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  organization  Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_trial_usage")
+}
+
 model AiUsage {
   id           String       @id @default(cuid())
   model        String
@@ -434,6 +445,7 @@ enum OrganizationType {
 
 enum PlanTier {
   FREE
+  FREE_EXPIRED
   STANDARD
   PREMIUM
   ENTERPRISE

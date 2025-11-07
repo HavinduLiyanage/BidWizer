@@ -1,4 +1,4 @@
-export type PlanTier = "FREE" | "STANDARD" | "PREMIUM" | "ENTERPRISE";
+export type PlanTier = "FREE" | "FREE_EXPIRED" | "STANDARD" | "PREMIUM" | "ENTERPRISE";
 
 export interface PlanSpec {
   id: PlanTier;
@@ -8,6 +8,9 @@ export interface PlanSpec {
   seats: number;
   aiMonthlyLimit: number | null;
   pageLimit?: number | null;
+  chatPerTender?: number | null;
+  briefPerTender?: number | null;
+  briefsPerTrial?: number | null;
   features: string[];
   highlight?: string;
   isPopular?: boolean;
@@ -27,20 +30,40 @@ export const PLAN_SPECS: Record<PlanTier, PlanSpec> = {
     priceLKR: 0,
     priceUSD: 0,
     seats: 1,
-    pageLimit: 3,
+    pageLimit: null,
+    chatPerTender: 2,
+    briefPerTender: 1,
+    briefsPerTrial: 3,
     aiMonthlyLimit: 0, // global monthly cap; FREE uses per-tender caps below
     features: [
-      "View tenders",
-      "View tender details",
-      "Workspace preview: first 3 pages",
-      "AI Brief: 1 per tender",
-      "AI Chat: 2 per tender",
-      "Email support",
+      "7-day trial period",
+      "3 questions per tender",
+      "2 tender brief generations across the platform",
+      "No cover letter generation",
+      "No company following",
     ],
-    highlight: "Try BidWizer with limited previews",
+    highlight: "Try BidWizer with full workspace previews",
     supportLevel: "email",
     includesCoverLetter: false,
     includesFolderChat: false,
+  },
+  FREE_EXPIRED: {
+    id: "FREE_EXPIRED",
+    label: "Trial Expired",
+    priceLKR: 0,
+    priceUSD: 0,
+    seats: 0,
+    pageLimit: 0,
+    chatPerTender: 0,
+    briefPerTender: 0,
+    briefsPerTrial: 0,
+    aiMonthlyLimit: 0,
+    features: ["Trial expired. Upgrade to resume access."],
+    highlight: "Upgrade required to continue",
+    supportLevel: "email",
+    includesCoverLetter: false,
+    includesFolderChat: false,
+    trialDays: 0,
   },
   STANDARD: {
     id: "STANDARD",
@@ -49,13 +72,15 @@ export const PLAN_SPECS: Record<PlanTier, PlanSpec> = {
     priceUSD: 20,
     seats: 1,
     pageLimit: null,
+    chatPerTender: null,
+    briefPerTender: null,
+    briefsPerTrial: null,
     aiMonthlyLimit: 120,
     features: [
-      "Full access to all tender documents",
-      "120 AI Q&A interactions per month",
-      "AI Brief: Unlimited",
-      "Cover Letter generator",
-      "Email + in-app chat support",
+      "120 questions per month",
+      "No cover letter generation limits",
+      "No tender brief limits",
+      "Follow up to 3 companies",
     ],
     highlight: "Best for solo bidders",
     supportLevel: "email",
@@ -69,15 +94,16 @@ export const PLAN_SPECS: Record<PlanTier, PlanSpec> = {
     priceUSD: 35,
     seats: 2,
     pageLimit: null,
+    chatPerTender: null,
+    briefPerTender: null,
+    briefsPerTrial: null,
     aiMonthlyLimit: 300,
     features: [
-      "Full access to all tender documents",
-      "300 AI Q&A interactions per month",
-      "AI Brief: Unlimited",
-      "Folder Chat (Beta)",
-      "Collaboration (2 seats)",
-      "Priority support (24-hour response)",
-      "Billing & plan management",
+      "300 questions per month",
+      "2 user seats",
+      "No tender brief limits",
+      "No cover letter generation limits",
+      "Follow up to 5 companies",
     ],
     highlight: "Most popular for teams",
     isPopular: true,
@@ -91,6 +117,9 @@ export const PLAN_SPECS: Record<PlanTier, PlanSpec> = {
     seats: 5,
     aiMonthlyLimit: null,
     pageLimit: null,
+    chatPerTender: null,
+    briefPerTender: null,
+    briefsPerTrial: null,
     features: [
       "Custom seat allocations",
       "Higher AI usage limits & dedicated support",
@@ -100,6 +129,8 @@ export const PLAN_SPECS: Record<PlanTier, PlanSpec> = {
     ],
     supportLevel: "custom",
     highlight: "Contact us for pricing",
+    includesCoverLetter: true,
+    includesFolderChat: true,
   },
 };
 
@@ -108,3 +139,10 @@ export function getPlanSpec(id: PlanTier): PlanSpec {
 }
 
 export const DEFAULT_TRIAL_DAYS = 7;
+
+export function isTrial(planTier: string | null | undefined): boolean {
+  if (!planTier) {
+    return false;
+  }
+  return planTier === "FREE" || planTier === "FREE_EXPIRED";
+}

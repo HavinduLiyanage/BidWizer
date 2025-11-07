@@ -1,4 +1,4 @@
-export type IndexPhase = 'queued' | 'manifest' | 'embedding' | 'finalize' | 'ready' | 'failed'
+export type IndexPhase = 'queued' | 'extract' | 'manifest' | 'embedding' | 'finalize' | 'ready' | 'failed'
 
 export interface IndexProgressSnapshot {
   docHash: string

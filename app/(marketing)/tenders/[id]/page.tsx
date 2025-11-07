@@ -24,6 +24,7 @@ import SiteFooter from "@/components/site-footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TenderWorkspaceModal } from "@/components/tender-workspace/TenderWorkspaceModal";
+import { useUser } from "@/lib/hooks/use-session";
 
 type Attachment = {
   id: string;
@@ -191,6 +192,7 @@ export default function TenderDetailPage() {
   const [tender, setTender] = useState<TenderDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useUser();
 
   useEffect(() => {
     let isMounted = true;
@@ -312,6 +314,9 @@ export default function TenderDetailPage() {
     ? resolveAttachmentUrl(tenderId, advertisementImage)
     : null;
 
+  // Bidder accounts must not be able to download tender documents
+  const canDownloadAttachments = (user?.organizationType ?? null) !== "BIDDER";
+
   const downloadableAttachments = useMemo(() => {
     if (!tender) {
       return [];
@@ -322,6 +327,8 @@ export default function TenderDetailPage() {
         !isImageAttachment(attachment)
     );
   }, [tender]);
+
+  const showAttachments = canDownloadAttachments && downloadableAttachments.length > 0;
 
   const preBidMeetingTime = useMemo(() => {
     if (!tender?.preBidMeetingAt) {
@@ -336,6 +343,8 @@ export default function TenderDetailPage() {
       minute: "numeric",
     }).format(meetingDate);
   }, [tender?.preBidMeetingAt]);
+
+  const preBidMeetingAtValue = tender?.preBidMeetingAt ?? null;
 
   const renderContent = () => {
     if (isLoading) {
@@ -415,20 +424,20 @@ export default function TenderDetailPage() {
                   Submission Deadline
                 </p>
                 <p className="mt-1 text-sm text-gray-900 font-medium">
-                  {formatDate(tender.deadline, { weekday: "long" })}
+                  {formatDate(tender!.deadline, { weekday: "long" })}
                 </p>
                 <p className="text-xs text-amber-700 mt-2 flex items-center gap-1">
                   <Clock className="h-3 w-3" />
                   {timeLeft}
                 </p>
               </div>
-              {tender.preBidMeetingAt && (
+              {preBidMeetingAtValue && (
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-xs uppercase tracking-wide text-blue-700 font-semibold">
                     Pre-bid Meeting
                   </p>
                   <p className="mt-1 text-sm text-gray-900 font-medium">
-                    {formatDate(tender.preBidMeetingAt, { weekday: "long" })}
+                    {formatDate(preBidMeetingAtValue, { weekday: "long" })}
                   </p>
                 </div>
               )}
@@ -496,7 +505,7 @@ export default function TenderDetailPage() {
           )}
 
           {/* Attachments */}
-          {downloadableAttachments.length > 0 && (
+          {showAttachments && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -510,6 +519,7 @@ export default function TenderDetailPage() {
               <ul className="space-y-3">
                 {downloadableAttachments.map((attachment) => {
                   const downloadUrl = resolveAttachmentUrl(tenderId, attachment);
+                  const showDownloadLink = downloadUrl && !isZipAttachment(attachment);
                   return (
                     <li
                       key={attachment.id}
@@ -523,7 +533,7 @@ export default function TenderDetailPage() {
                         {attachment.size ? (
                           <span className="text-xs text-gray-500">{formatFileSize(attachment.size)}</span>
                         ) : null}
-                        {downloadUrl && !isZipAttachment(attachment) ? (
+                        {showDownloadLink ? (
                           <Link
                             href={downloadUrl}
                             target="_blank"
@@ -558,18 +568,18 @@ export default function TenderDetailPage() {
                 <div>
                   <p className="text-sm font-semibold text-gray-900">Submission deadline</p>
                   <p className="text-xs text-gray-600">
-                    {formatDate(tender.deadline, { weekday: "long" })}
+                    {formatDate(tender!.deadline, { weekday: "long" })}
                   </p>
                   <p className="text-xs text-amber-600">{timeLeft}</p>
                 </div>
               </div>
-              {tender.preBidMeetingAt && (
+              {preBidMeetingAtValue && (
                 <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <Users className="h-5 w-5 text-blue-600" />
                   <div>
                     <p className="text-sm font-semibold text-gray-900">Pre-bid meeting</p>
                     <p className="text-xs text-gray-600">
-                      {formatDate(tender.preBidMeetingAt, { weekday: "long" })}
+                      {formatDate(preBidMeetingAtValue, { weekday: "long" })}
                     </p>
                     {preBidMeetingTime && (
                       <p className="text-xs text-blue-600">{preBidMeetingTime}</p>

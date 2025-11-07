@@ -9,11 +9,16 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { useEnsureDocIndex } from "../hooks/useEnsureDocIndex";
+import { track } from "@/lib/analytics";
+import type { UpsellFeature } from "@/components/Modals/UpsellModal";
 
 interface ChatTabProps {
   tenderId: string;
   selectedFileId?: string;
-  selectedFolderPath?: string; // unused in V1
+  usedChats: number;
+  chatLimit: number | null;
+  onUpsell: (feature: UpsellFeature) => void;
+  onUsageChange: () => void;
 }
 
 type Message = {
@@ -24,28 +29,126 @@ type Message = {
   timestamp: Date;
 };
 
-export function ChatTab({ tenderId, selectedFileId }: ChatTabProps) {
+export function ChatTab({
+  tenderId,
+  selectedFileId,
+  usedChats,
+  chatLimit,
+  onUpsell,
+  onUsageChange,
+}: ChatTabProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const trackedBlockRef = useRef(false);
 
   const index = useEnsureDocIndex(tenderId, selectedFileId);
   const canInteract =
     index.status === "ready" && Boolean(index.docHash) && Boolean(index.fileId);
 
+  const effectiveLimit =
+    typeof chatLimit === "number" && chatLimit > 0 ? chatLimit : null;
+  const limitReached =
+    effectiveLimit !== null ? usedChats >= effectiveLimit : false;
+
+  const displayLimit =
+    effectiveLimit !== null ? effectiveLimit.toString() : "∞";
+
+  const chatStorageKey =
+    typeof tenderId === "string" && tenderId.length > 0 && selectedFileId
+      ? `aiassistant:${tenderId}:${selectedFileId}:chat`
+      : null;
+
   useEffect(() => {
-    setMessages([]);
-    setInput("");
-  }, [selectedFileId]);
+    if (!chatStorageKey) {
+      setMessages([]);
+      setInput("");
+      trackedBlockRef.current = false;
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const raw = sessionStorage.getItem(chatStorageKey);
+      if (!raw) {
+        setMessages([]);
+        setInput("");
+        trackedBlockRef.current = false;
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as {
+        messages?: Array<
+          Omit<Message, "timestamp"> & { timestamp?: string | number }
+        >;
+        input?: string;
+      };
+
+      const restoredMessages =
+        Array.isArray(parsed?.messages) && parsed.messages.length > 0
+          ? parsed.messages.map((message) => ({
+              ...message,
+              timestamp:
+                message.timestamp !== undefined
+                  ? new Date(message.timestamp)
+                  : new Date(),
+            }))
+          : [];
+
+      setMessages(restoredMessages);
+      setInput(typeof parsed?.input === "string" ? parsed.input : "");
+    } catch (error) {
+      console.warn("Unable to restore chat session:", error);
+      setMessages([]);
+      setInput("");
+    } finally {
+      trackedBlockRef.current = false;
+    }
+  }, [chatStorageKey]);
+
+  useEffect(() => {
+    if (!chatStorageKey || typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const serialized = JSON.stringify({
+        messages: messages.map((message) => ({
+          ...message,
+          timestamp: message.timestamp.toISOString(),
+        })),
+        input,
+      });
+      sessionStorage.setItem(chatStorageKey, serialized);
+    } catch (error) {
+      console.warn("Unable to persist chat session:", error);
+    }
+  }, [messages, input, chatStorageKey]);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const handleBlocked = (reason: string) => {
+    if (!trackedBlockRef.current) {
+      track("chat_blocked", { tenderId, reason });
+      trackedBlockRef.current = true;
+    }
+    onUpsell("chat");
+  };
+
   const send = async () => {
     if (!input.trim() || !canInteract) {
+      return;
+    }
+
+    if (limitReached) {
+      handleBlocked("limit_reached");
       return;
     }
 
@@ -77,11 +180,18 @@ export function ChatTab({ tenderId, selectedFileId }: ChatTabProps) {
       let citations: Message["citations"] = undefined;
 
       if (response.ok) {
-        if (typeof payload?.content === "string" && payload.content.trim().length > 0) {
+        if (
+          typeof payload?.content === "string" &&
+          payload.content.trim().length > 0
+        ) {
           assistantContent = payload.content.trim();
         }
         if (Array.isArray(payload?.citations)) {
-          const mapped = payload.citations
+          const mapped: Array<{
+            docName: string;
+            page: number | null;
+            snippet?: string;
+          }> = payload.citations
             .map(
               (citation: {
                 docName?: string;
@@ -97,13 +207,34 @@ export function ChatTab({ tenderId, selectedFileId }: ChatTabProps) {
                     : undefined,
               }),
             )
-            .filter((entry) => entry.docName);
+            .filter(
+              (entry: {
+                docName: string;
+                page: number | null;
+                snippet?: string;
+              }) => entry.docName.length > 0,
+            );
           citations = mapped.length > 0 ? mapped : undefined;
         }
+        trackedBlockRef.current = false;
+        onUsageChange();
       } else if (response.status === 422) {
         if (typeof payload?.error === "string" && payload.error.length > 0) {
           assistantContent = payload.error;
         }
+      } else if (response.status === 403) {
+        const code =
+          typeof payload?.code === "string" ? payload.code : "unknown";
+        if (code === "TRIAL_LIMIT") {
+          handleBlocked(code);
+        }
+        throw new Error(
+          typeof payload?.message === "string" && payload.message.trim().length > 0
+            ? payload.message
+            : typeof payload?.error === "string" && payload.error.trim().length > 0
+            ? payload.error
+            : "Request failed",
+        );
       } else {
         const errorMessage =
           typeof payload?.message === "string" && payload.message.trim().length > 0
@@ -152,6 +283,12 @@ export function ChatTab({ tenderId, selectedFileId }: ChatTabProps) {
       <div className="border-b border-gray-200 bg-white/70 px-4 py-2">
         <p className="text-xs text-gray-600">
           Chatting with the <strong>open file</strong> only.
+        </p>
+        <p
+          className="mt-2 text-[11px] text-gray-600"
+          data-testid="chat-meter"
+        >
+          Chats used: {usedChats} / {displayLimit}
         </p>
         {index.status === "preparing" && (
           <div className="mt-2 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700">
@@ -259,10 +396,12 @@ export function ChatTab({ tenderId, selectedFileId }: ChatTabProps) {
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={!canInteract || isSending}
+            disabled={!canInteract || isSending || limitReached}
             placeholder={
               canInteract
-                ? "Ask about this file..."
+                ? limitReached
+                  ? "Trial chat limit reached"
+                  : "Ask about this file..."
                 : index.status === "error"
                 ? "Index unavailable"
                 : "Preparing index..."
@@ -271,7 +410,7 @@ export function ChatTab({ tenderId, selectedFileId }: ChatTabProps) {
           />
           <Button
             onClick={() => void send()}
-            disabled={!canInteract || isSending}
+            disabled={!canInteract || isSending || limitReached}
             className="h-9 text-xs"
           >
             {isSending ? (

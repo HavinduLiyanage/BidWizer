@@ -4,7 +4,7 @@ import SiteHeader from '@/components/site-header'
 import SiteFooter from '@/components/site-footer'
 import Link from 'next/link'
 import { ArrowRight, Zap, Search, Users, BarChart3, MessageSquare, Sparkles, Target } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { motion, type TargetAndTransition, type Variants } from 'framer-motion'
 
 const coreFeatures = [
   {
@@ -54,7 +54,7 @@ const aiCapabilities = [
   }
 ]
 
-const container = {
+const container: Variants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
@@ -64,25 +64,23 @@ const container = {
   }
 }
 
-const item = {
+const item: Variants = {
   hidden: { opacity: 0, y: 50, scale: 0.9 },
   show: { 
     opacity: 1, 
     y: 0,
     scale: 1,
     transition: {
-      duration: 0.8,
-      ease: [0.23, 1, 0.32, 1]
+      duration: 0.8
     }
   }
 }
 
-const floatingAnimation = {
+const floatingAnimation: TargetAndTransition = {
   y: [0, -10, 0],
   transition: {
     duration: 3,
-    repeat: Infinity,
-    ease: "easeInOut"
+    repeat: Infinity
   }
 }
 
@@ -102,7 +100,13 @@ export default function FeaturesPage() {
           />
           <motion.div 
             className="absolute bottom-20 right-10 w-40 h-40 bg-purple-500/10 rounded-full blur-xl"
-            animate={{ ...floatingAnimation, delay: 1.5 }}
+            animate={{
+              ...floatingAnimation,
+              transition: {
+                ...floatingAnimation.transition,
+                delay: 1.5,
+              },
+            }}
           />
           
           <div className="container relative z-10 py-20 text-center md:py-28">
@@ -296,7 +300,13 @@ export default function FeaturesPage() {
           />
           <motion.div 
             className="absolute bottom-10 right-10 w-32 h-32 bg-purple-500/10 rounded-full blur-xl"
-            animate={{ ...floatingAnimation, delay: 2 }}
+            animate={{
+              ...floatingAnimation,
+              transition: {
+                ...floatingAnimation.transition,
+                delay: 2,
+              },
+            }}
           />
           
           <div className="container text-center relative z-10">

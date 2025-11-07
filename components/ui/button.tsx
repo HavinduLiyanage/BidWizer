@@ -5,6 +5,7 @@ const styles = cva('btn', {
   variants: {
     variant: {
       primary: 'btn-primary',
+      secondary: 'btn-secondary',
       ghost: 'btn-ghost',
       outline: 'border border-border text-ink bg-white hover:bg-slate-50'
     },

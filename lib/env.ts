@@ -27,8 +27,9 @@ const schema = z.object({
   RESEND_API_KEY: z.string().trim().optional(),
 
   // Feature flags / product
-  PLAN_ENFORCEMENT_ENABLED: z.coerce.boolean().default(false),
+  PLAN_ENFORCEMENT_ENABLED: z.coerce.boolean().default(true),
   WATERMARK_ENABLED: z.coerce.boolean().default(false),
+  PDF_OVERLAY_MODE: z.enum(['auto', 'heuristic']).default('heuristic'),
   INGESTION_MODE: z.enum(['eager', 'lazy']).default('eager'),
   RETRIEVAL_TOP_K: z.coerce.number().default(8),
   EMBED_BATCH_SIZE: z.coerce.number().default(128),
@@ -67,7 +68,13 @@ const schema = z.object({
   BASE_URL: z.string().trim().optional(),
 })
 
-export const env = Object.freeze(schema.parse(process.env))
+const parsedEnv = schema.parse(process.env)
+
+if (parsedEnv.NODE_ENV === 'production' && !parsedEnv.PLAN_ENFORCEMENT_ENABLED) {
+  throw new Error('PLAN_ENFORCEMENT_ENABLED must be true in production.')
+}
+
+export const env = Object.freeze(parsedEnv)
 
 if (!env.PRISMA_DISABLE_PREPARED_STATEMENTS) {
   process.env.PRISMA_DISABLE_PREPARED_STATEMENTS = 'true'

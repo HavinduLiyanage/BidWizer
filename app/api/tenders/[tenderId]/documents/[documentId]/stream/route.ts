@@ -8,7 +8,6 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { loadUploadBuffer } from "@/lib/uploads";
 import { enforceAccess, PlanError } from "@/lib/entitlements/enforce";
-import type { PlanErrorResponse } from "@/types/api-errors";
 import { ensureTenderAccess } from "@/lib/indexing/access";
 
 export const runtime = "nodejs";
@@ -66,6 +65,17 @@ function safeFilename(name?: string | null): string {
   }
   const trimmed = name.trim();
   return trimmed.length > 0 ? trimmed : "document";
+}
+
+type ZipFileEntry = {
+  path: string;
+  type: string;
+  buffer: () => Promise<Buffer>;
+  uncompressedSize?: number;
+};
+
+function bufferToBodyInit(buffer: Buffer): ArrayBuffer {
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
 }
 
 function resolveRequestedPage(request: NextRequest): number | undefined {
@@ -145,14 +155,14 @@ export async function GET(
       await enforceAccess({
         orgId: viewerOrganizationId,
         feature: "pageView",
-        page,
+        pageNumber: page,
         userId: session.user.id,
         tenderId,
+        documentId,
       });
     } catch (error) {
       if (error instanceof PlanError) {
-        const payload: PlanErrorResponse = { error: error.code, message: error.message };
-        return NextResponse.json(payload, { status: error.http });
+        return NextResponse.json({ code: error.code }, { status: error.http });
       }
       throw error;
     }
@@ -215,9 +225,10 @@ export async function GET(
           url: extracted.upload.url,
         });
         const archive = await unzipper.Open.buffer(archiveBuffer);
+        const files = archive.files as ZipFileEntry[];
         const entry =
-          archive.files.find((file) => file.type !== "Directory" && file.path === entryPath) ??
-          archive.files.find(
+          files.find((file) => file.type !== "Directory" && file.path === entryPath) ??
+          files.find(
             (file) =>
               file.type !== "Directory" &&
               file.path.split("/").filter(Boolean).pop() === filename,
@@ -230,7 +241,7 @@ export async function GET(
         const entryBuffer = await entry.buffer();
         const mimeType = inferMimeType(filename, extracted.upload.mimeType);
 
-        return new NextResponse(entryBuffer, {
+        return new NextResponse(bufferToBodyInit(entryBuffer), {
           headers: {
             "Content-Type": mimeType,
             "Content-Length": entryBuffer.length.toString(),
@@ -249,7 +260,7 @@ export async function GET(
       });
       const mimeType = inferMimeType(filename, extracted.upload.mimeType);
 
-      return new NextResponse(payloadBuffer, {
+      return new NextResponse(bufferToBodyInit(payloadBuffer), {
         headers: {
           "Content-Type": mimeType,
           "Content-Length": payloadBuffer.length.toString(),
@@ -286,7 +297,7 @@ export async function GET(
     });
     const mimeType = inferMimeType(filename, upload.mimeType);
 
-    return new NextResponse(payloadBuffer, {
+    return new NextResponse(bufferToBodyInit(payloadBuffer), {
       headers: {
         "Content-Type": mimeType,
         "Content-Length": payloadBuffer.length.toString(),
@@ -305,8 +316,7 @@ export async function GET(
       );
     }
     if (error instanceof PlanError) {
-      const payload: PlanErrorResponse = { error: error.code, message: error.message };
-      return NextResponse.json(payload, { status: error.http });
+      return NextResponse.json({ code: error.code }, { status: error.http });
     }
 
     console.error("[tenders-documents-stream] Failed to stream document:", error);

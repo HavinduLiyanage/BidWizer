@@ -7,14 +7,16 @@ import { db } from '@/lib/db'
 import { sendInvitationEmail, sendVerificationEmail } from '@/lib/email'
 import { env } from '@/lib/env'
 import { ensureActiveSubscriptionForOrg } from '@/lib/subscription'
-const PLAN_OPTIONS = ['FREE', 'STANDARD', 'PREMIUM', 'ENTERPRISE'] as const satisfies readonly PlanTier[]
+type SelectablePlanTier = Exclude<PlanTier, 'FREE_EXPIRED'>
+
+const PLAN_OPTIONS = ['FREE', 'STANDARD', 'PREMIUM', 'ENTERPRISE'] as const satisfies readonly SelectablePlanTier[]
 
 function parsePlanTier(value: string | null | undefined): PlanTier | null {
   if (!value) {
     return null
   }
   const upper = value.toUpperCase()
-  return PLAN_OPTIONS.includes(upper as PlanTier) ? (upper as PlanTier) : null
+  return PLAN_OPTIONS.includes(upper as SelectablePlanTier) ? (upper as SelectablePlanTier) : null
 }
 
 const teamMemberSchema = z.object({
@@ -367,11 +369,6 @@ async function handlePublisherRegistration(rawBody: unknown, selectedPlan?: Plan
     })
 
     return { user, organization, verificationToken }
-  })
-
-  await ensureActiveSubscriptionForOrg(organization.id, {
-    preferredTier: planTier,
-    userId: user.id,
   })
 
   await sendVerificationEmail(data.email, verificationToken.token)

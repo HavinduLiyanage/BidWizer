@@ -1,10 +1,21 @@
+// Manual test steps:
+// - Anonymous GET on /api/public/tenders/.../stream -> 401 or 404 (depending on approach).
+// - Trial org session: /ai/cover-letter -> 403 { code: "FEATURE_NOT_AVAILABLE" }.
+// - Trial org session: /stream -> 200 with full document access.
+// - Paid org session: /ai/cover-letter -> 200 (unchanged behavior).
+
 import { NextRequest, NextResponse } from "next/server";
-import { UploadKind, UploadStatus, TenderStatus } from "@prisma/client";
+import { getServerSession } from "next-auth";
+import { UploadKind, UploadStatus } from "@prisma/client";
 import { z } from "zod";
 import * as unzipper from "unzipper";
 
+import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { loadUploadBuffer } from "@/lib/uploads";
+import { enforceAccess, PlanError } from "@/lib/entitlements/enforce";
+import { ensureTenderAccess } from "@/lib/indexing/access";
+import { log } from "@/lib/log";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +24,43 @@ const paramsSchema = z.object({
   tenderId: z.string().min(1, "Tender id is required"),
   documentId: z.string().min(1, "Document id is required"),
 });
+
+function resolveRequestedPage(request: NextRequest): number | undefined {
+  const candidates: string[] = [];
+  const params = request.nextUrl.searchParams;
+  const paramKeys = ["page", "pages", "p", "from", "to", "startPage", "endPage"];
+  for (const key of paramKeys) {
+    for (const value of params.getAll(key)) {
+      if (value) {
+        candidates.push(value);
+      }
+    }
+  }
+
+  const headerKeys = ["x-bidwizer-page", "x-bidwizer-pages", "x-page", "x-pages"];
+  for (const key of headerKeys) {
+    const value = request.headers.get(key);
+    if (value) {
+      candidates.push(value);
+    }
+  }
+
+  let highest: number | undefined;
+  for (const candidate of candidates) {
+    const matches = candidate.match(/\d+/g);
+    if (!matches) {
+      continue;
+    }
+    for (const match of matches) {
+      const parsed = Number.parseInt(match, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        highest = highest ? Math.max(highest, parsed) : parsed;
+      }
+    }
+  }
+
+  return highest;
+}
 
 function sanitizeMetadata(metadata: unknown): Record<string, unknown> | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
@@ -51,6 +99,15 @@ function inferMimeType(filename?: string | null, fallback?: string | null): stri
       return "text/csv; charset=utf-8";
     case "json":
       return "application/json; charset=utf-8";
+    case "png":
+      return "image/png";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
     default:
       return fallback ?? "application/octet-stream";
   }
@@ -64,6 +121,17 @@ function safeFilename(name?: string | null): string {
   return trimmed.length > 0 ? trimmed : "document";
 }
 
+type ZipFileEntry = {
+  path: string;
+  type: string;
+  buffer: () => Promise<Buffer>;
+  uncompressedSize?: number;
+};
+
+function bufferToBodyInit(buffer: Buffer): ArrayBuffer {
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+}
+
 async function downloadUploadPayload(upload: {
   storageKey: string | null;
   url: string | null;
@@ -73,10 +141,7 @@ async function downloadUploadPayload(upload: {
   }
 
   if (upload.url) {
-    const response = await fetch(upload.url, {
-      cache: "no-store",
-      next: { revalidate: 0 },
-    });
+    const response = await fetch(upload.url);
     if (!response.ok) {
       throw new Error(`Failed to download file (${response.status})`);
     }
@@ -88,24 +153,57 @@ async function downloadUploadPayload(upload: {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: { tenderId: string; documentId: string } },
 ) {
   try {
-    const { tenderId, documentId } = paramsSchema.parse(context.params);
-
-    const tender = await db.tender.findFirst({
-      where: { id: tenderId, status: TenderStatus.PUBLISHED },
-      select: { id: true },
-    });
-
-    if (!tender) {
-      return NextResponse.json({ error: "Tender not found" }, { status: 404 });
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const rawId = documentId.startsWith("file:")
-      ? documentId.slice("file:".length)
-      : documentId;
+    const { tenderId, documentId } = paramsSchema.parse(context.params);
+    const access = await ensureTenderAccess(session.user.id, tenderId);
+    const viewerOrgId = access.viewerOrganizationId ?? access.organizationId;
+    const page = resolveRequestedPage(request);
+
+    try {
+      const accessResult = await enforceAccess({
+        orgId: viewerOrgId,
+        feature: "pageView",
+        tenderId,
+        userId: session.user.id,
+        pageNumber: page,
+        documentId,
+      });
+      log("api.public.tenders.stream", "gate_check", {
+        event: "gate_check",
+        feature: "pageView",
+        orgId: viewerOrgId,
+        tenderId,
+        documentId,
+        page: page ?? null,
+        result: "allow",
+        reason: accessResult.plan,
+      });
+    } catch (error) {
+      if (error instanceof PlanError) {
+        log("api.public.tenders.stream", "gate_check", {
+          event: "gate_check",
+          feature: "pageView",
+          orgId: viewerOrgId,
+          tenderId,
+          documentId,
+          page: page ?? null,
+          result: "deny",
+          reason: error.code,
+        });
+        return NextResponse.json({ code: error.code }, { status: 403 });
+      }
+      throw error;
+    }
+
+    const rawId = documentId.startsWith("file:") ? documentId.slice("file:".length) : documentId;
 
     const extracted = await db.extractedFile.findUnique({
       where: { id: rawId },
@@ -161,9 +259,10 @@ export async function GET(
           url: extracted.upload.url,
         });
         const archive = await unzipper.Open.buffer(archiveBuffer);
+        const files = archive.files as ZipFileEntry[];
         const entry =
-          archive.files.find((file) => file.type !== "Directory" && file.path === entryPath) ??
-          archive.files.find(
+          files.find((file) => file.type !== "Directory" && file.path === entryPath) ??
+          files.find(
             (file) =>
               file.type !== "Directory" &&
               file.path.split("/").filter(Boolean).pop() === filename,
@@ -176,7 +275,7 @@ export async function GET(
         const entryBuffer = await entry.buffer();
         const mimeType = inferMimeType(filename, extracted.upload.mimeType);
 
-        return new NextResponse(entryBuffer, {
+        return new NextResponse(bufferToBodyInit(entryBuffer), {
           headers: {
             "Content-Type": mimeType,
             "Content-Length": entryBuffer.length.toString(),
@@ -195,7 +294,7 @@ export async function GET(
       });
       const mimeType = inferMimeType(filename, extracted.upload.mimeType);
 
-      return new NextResponse(payloadBuffer, {
+      return new NextResponse(bufferToBodyInit(payloadBuffer), {
         headers: {
           "Content-Type": mimeType,
           "Content-Length": payloadBuffer.length.toString(),
@@ -218,21 +317,10 @@ export async function GET(
         originalName: true,
         mimeType: true,
         status: true,
-        kind: true,
-        isAdvertisement: true,
       },
     });
 
-    const allowIncompleteImage =
-      upload &&
-      (upload.kind === UploadKind.image || upload.isAdvertisement === true);
-
-    if (
-      !upload ||
-      upload.tenderId !== tenderId ||
-      (upload.status !== UploadStatus.COMPLETED &&
-        !(allowIncompleteImage && upload.status !== UploadStatus.FAILED))
-    ) {
+    if (!upload || upload.tenderId !== tenderId || upload.status !== UploadStatus.COMPLETED) {
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
 
@@ -243,7 +331,7 @@ export async function GET(
     });
     const mimeType = inferMimeType(filename, upload.mimeType);
 
-    return new NextResponse(payloadBuffer, {
+    return new NextResponse(bufferToBodyInit(payloadBuffer), {
       headers: {
         "Content-Type": mimeType,
         "Content-Length": payloadBuffer.length.toString(),
@@ -262,7 +350,14 @@ export async function GET(
       );
     }
 
-    console.error("[public-tenders-documents-stream] Failed to stream document:", error);
+    if (error instanceof PlanError) {
+      return NextResponse.json({ code: error.code }, { status: error.http });
+    }
+
+    console.error(
+      "[public-tenders-documents-stream] Failed to stream document:",
+      error,
+    );
     return NextResponse.json(
       { error: "Failed to stream document content" },
       { status: 500 },

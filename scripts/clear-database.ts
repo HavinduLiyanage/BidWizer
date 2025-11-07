@@ -35,11 +35,23 @@ async function clearDatabase() {
     console.log('📊 Clearing AI usage records...')
     await prisma.aiUsage.deleteMany()
     
-    console.log('📋 Clearing tender documents...')
-    await prisma.tenderDocument.deleteMany()
+    console.log('📄 Clearing document summaries...')
+    await prisma.documentSummary.deleteMany()
     
-    console.log('📄 Clearing tender requirements...')
-    await prisma.tenderRequirement.deleteMany()
+    console.log('📄 Clearing document sections...')
+    await prisma.documentSection.deleteMany()
+    
+    console.log('🧩 Clearing chunks...')
+    await prisma.chunk.deleteMany()
+    
+    console.log('📋 Clearing documents...')
+    await prisma.document.deleteMany()
+    
+    console.log('📂 Clearing extracted files...')
+    await prisma.extractedFile.deleteMany()
+    
+    console.log('🗂️  Clearing uploads...')
+    await prisma.upload.deleteMany()
     
     console.log('📝 Clearing tenders...')
     await prisma.tender.deleteMany()

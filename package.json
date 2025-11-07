@@ -37,6 +37,7 @@
     "react-dom": "^18",
     "react-hook-form": "^7.50.0",
     "resend": "^6.1.2",
+    "swr": "^2.3.6",
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
     "tar-stream": "^3.1.7",
@@ -46,6 +47,8 @@
   "devDependencies": {
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/typography": "^0.5.19",
+    "@types/bcrypt": "^6.0.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
@@ -56,6 +59,7 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^8",
     "eslint-config-next": "14.2.0",
+    "jest": "^30.2.0",
     "postcss": "^8",
     "prettier": "^3.6.2",
     "prettier-plugin-tailwindcss": "^0.6.14",
@@ -71,6 +75,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --runInBand",
     "cleanup:orphans": "tsx scripts/cleanup-orphan-organizations.ts",
     "worker": "node -r dotenv/config server/workers/indexWorker.js dotenv_config_path=.env.local",
     "worker:dev": "nodemon --exec \"node -r dotenv/config server/workers/indexWorker.js dotenv_config_path=.env.local\"",
@@ -79,7 +85,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "cron:reset-usage": "tsx scripts/reset-usage.ts",
-    "cron:expire-trials": "tsx scripts/expire-trials.ts"
+    "cron:expire-trials": "TS_NODE_TRANSPILE_ONLY=1 ts-node scripts/expire-trials.ts"
   },
   "engines": {
     "node": ">=20"

@@ -1,3 +1,9 @@
+// Manual test steps:
+// - Anonymous GET on /api/public/tenders/.../stream -> 401 or 404 (depending on approach).
+// - Trial org session: /ai/cover-letter -> 403 { code: "FEATURE_NOT_AVAILABLE" }.
+// - Trial org session: /stream -> 200 with full document access.
+// - Paid org session: /ai/cover-letter -> 200 (unchanged behavior).
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { z } from 'zod'
@@ -5,12 +11,31 @@ import { z } from 'zod'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { openai } from '@/lib/ai/openai'
+import { enforceAccess, PlanError } from '@/lib/entitlements/enforce'
+import { log } from '@/lib/log'
+import type {
+  ResponseOutputItem,
+  ResponseOutputMessage,
+  ResponseOutputText,
+} from 'openai/resources/responses/responses'
 
 const bodySchema = z.object({
   tone: z.enum(['professional', 'confident', 'concise']).default('professional'),
   length: z.enum(['short', 'standard', 'detailed']).default('standard'),
   customNotes: z.string().optional(),
 })
+
+function isOutputMessage(item: ResponseOutputItem): item is ResponseOutputMessage {
+  return item.type === 'message'
+}
+
+function extractTextFromMessage(message: ResponseOutputMessage): string {
+  return message.content
+    .map((contentItem) =>
+      contentItem.type === 'output_text' ? (contentItem as ResponseOutputText).text : '',
+    )
+    .join('')
+}
 
 export async function POST(
   request: NextRequest,
@@ -42,6 +67,36 @@ export async function POST(
     const bidder = membership?.organization
     if (!bidder) {
       return NextResponse.json({ error: 'Organization not found' }, { status: 400 })
+    }
+
+    try {
+      const accessResult = await enforceAccess({
+        orgId: bidder.id,
+        feature: 'coverLetter',
+        tenderId,
+        userId: session.user.id,
+      })
+      log('api.tenders.cover-letter', 'gate_check', {
+        event: 'gate_check',
+        feature: 'coverLetter',
+        orgId: bidder.id,
+        tenderId,
+        result: 'allow',
+        reason: accessResult.plan,
+      })
+    } catch (error) {
+      if (error instanceof PlanError) {
+        log('api.tenders.cover-letter', 'gate_check', {
+          event: 'gate_check',
+          feature: 'coverLetter',
+          orgId: bidder.id,
+          tenderId,
+          result: 'deny',
+          reason: error.code,
+        })
+        return NextResponse.json({ code: 'FEATURE_NOT_AVAILABLE' }, { status: 403 })
+      }
+      throw error
     }
 
     const systemPrompt =
@@ -91,12 +146,8 @@ export async function POST(
 
     const letterMarkdown =
       response.output_text ??
-      response.outputs
-        ?.map((entry) =>
-          entry.content
-            ?.map((item) => ('text' in item ? item.text : ''))
-            .join(''),
-        )
+      response.output
+        ?.map((entry) => (isOutputMessage(entry) ? extractTextFromMessage(entry) : ''))
         .join('\n') ??
       ''
 
@@ -110,6 +161,9 @@ export async function POST(
         { error: 'Validation failed', details: error.issues },
         { status: 400 },
       )
+    }
+    if (error instanceof PlanError) {
+      return NextResponse.json({ code: 'FEATURE_NOT_AVAILABLE' }, { status: 403 })
     }
 
     console.error('[cover-letter] failed:', error)
